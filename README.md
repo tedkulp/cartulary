@@ -164,17 +164,21 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 
 ## Implementation Status
 
-### ✅ Phase 1: Foundation (Current)
+### ✅ Phase 1: Foundation
 - [x] Project scaffolding
 - [x] Docker Compose setup
 - [x] Database schema
-- [ ] Authentication system
-- [ ] Basic document upload
+- [x] Authentication system (JWT)
+- [x] Basic document upload with deduplication
 
-### 🔲 Phase 2: OCR & Full-Text Search
-- [ ] OCR integration
-- [ ] Full-text search
-- [ ] Tag management
+### ✅ Phase 2: OCR & Full-Text Search (Current)
+- [x] OCR integration (PaddleOCR - optional)
+- [x] PDF text extraction (PyMuPDF)
+- [x] Background processing (Celery)
+- [x] Full-text search (ILIKE-based)
+- [x] Tag management (backend API)
+- [ ] Tag management UI
+- [ ] Search UI
 
 ### 🔲 Phase 3: Semantic Search
 - [ ] Embedding generation
