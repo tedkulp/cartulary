@@ -76,6 +76,7 @@ class Settings(BaseSettings):
         return v
 
     # Embeddings (Phase 3)
+    EMBEDDING_ENABLED: bool = False  # Enable/disable automatic embedding generation
     EMBEDDING_PROVIDER: str = "local"  # local, openai
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIMENSION: int = 384

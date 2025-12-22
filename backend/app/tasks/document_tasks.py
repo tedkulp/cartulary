@@ -83,10 +83,13 @@ def process_document(self, document_id: str) -> dict:
             f"Processed document {document_id} with status: {doc.processing_status}"
         )
 
-        # Trigger embedding generation if OCR was successful and text was extracted
-        if doc.processing_status == "ocr_complete" and doc.ocr_text:
+        # Trigger embedding generation if enabled and OCR was successful
+        from app.config import settings
+        if settings.EMBEDDING_ENABLED and doc.processing_status == "ocr_complete" and doc.ocr_text:
             logger.info(f"Triggering embedding generation for document {document_id}")
             generate_embeddings.delay(document_id)
+        elif not settings.EMBEDDING_ENABLED:
+            logger.info(f"Embedding generation disabled, skipping for document {document_id}")
 
         return {
             "status": "success",
