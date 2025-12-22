@@ -149,6 +149,46 @@ class DocumentService:
 
         return [DocumentResponse.model_validate(doc) for doc in documents]
 
+    def update_document(
+        self,
+        document_id: UUID,
+        user_id: UUID,
+        document_update: "DocumentUpdate"
+    ) -> DocumentResponse:
+        """
+        Update document metadata.
+
+        Args:
+            document_id: Document ID
+            user_id: User ID (for permission check)
+            document_update: Updated document fields
+
+        Returns:
+            Updated document
+
+        Raises:
+            NotFoundError: If document not found or user doesn't have permission
+        """
+        from app.schemas.document import DocumentUpdate
+
+        # Get document
+        document = self.db.query(Document).filter(
+            Document.id == document_id,
+            Document.owner_id == user_id
+        ).first()
+
+        if not document:
+            raise NotFoundError("Document not found")
+
+        # Update fields
+        if document_update.title is not None:
+            document.title = document_update.title
+
+        self.db.commit()
+        self.db.refresh(document)
+
+        return DocumentResponse.model_validate(document)
+
     def delete_document(self, document_id: UUID, user_id: UUID) -> bool:
         """
         Delete a document.

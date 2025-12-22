@@ -129,6 +129,46 @@ def get_document(
         )
 
 
+@router.get(
+    "/{document_id}/download",
+    summary="Download document file",
+    description="Download the original document file"
+)
+async def download_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    doc_service: DocumentService = Depends(get_document_service)
+):
+    """Download a document file."""
+    from fastapi.responses import FileResponse
+    from app.services.storage_service import StorageService
+
+    try:
+        # Verify document exists and user has access
+        doc = doc_service.get_document(document_id=document_id, user_id=current_user.id)
+
+        # Get absolute file path
+        storage = StorageService()
+        file_path = storage.get_file_path(doc.file_path)
+
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document file not found"
+            )
+
+        return FileResponse(
+            path=str(file_path),
+            filename=doc.original_filename,
+            media_type=doc.mime_type
+        )
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+
+
 @router.post(
     "/{document_id}/reprocess",
     response_model=dict,
@@ -155,6 +195,32 @@ def reprocess_document(
             "document_id": str(document_id),
             "task_id": task.id
         }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+
+
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    summary="Update document metadata",
+    description="Update document title and other metadata"
+)
+def update_document(
+    document_id: UUID,
+    document_update: DocumentUpdate,
+    current_user: User = Depends(get_current_user),
+    doc_service: DocumentService = Depends(get_document_service)
+) -> DocumentResponse:
+    """Update document metadata."""
+    try:
+        return doc_service.update_document(
+            document_id=document_id,
+            user_id=current_user.id,
+            document_update=document_update
+        )
     except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

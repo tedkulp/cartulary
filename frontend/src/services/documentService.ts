@@ -29,7 +29,20 @@ export const documentService = {
     return response.data
   },
 
+  async update(id: string, data: { title?: string }): Promise<Document> {
+    const response = await api.patch<Document>(`/api/v1/documents/${id}`, data)
+    return response.data
+  },
+
   async delete(id: string): Promise<void> {
     await api.delete(`/api/v1/documents/${id}`)
+  },
+
+  async reprocess(id: string): Promise<void> {
+    await api.post(`/api/v1/documents/${id}/reprocess`)
+  },
+
+  getDownloadUrl(id: string): string {
+    return `/api/v1/documents/${id}/download`
   },
 }
