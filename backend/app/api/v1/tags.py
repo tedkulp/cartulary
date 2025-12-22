@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
-from app.core.security import get_current_user
-from app.database import get_db
+from app.dependencies import get_current_user, get_db
 from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
