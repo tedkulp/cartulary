@@ -1,7 +1,7 @@
 """remove username from users
 
-Revision ID: 002_remove_username
-Revises: 001_initial_schema
+Revision ID: 002
+Revises: 001
 Create Date: 2025-12-22 04:00:00.000000
 
 """
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '002_remove_username'
-down_revision: Union[str, None] = '001_initial_schema'
+revision: str = '002'
+down_revision: Union[str, None] = '001'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
