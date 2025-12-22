@@ -25,12 +25,14 @@ class DocumentUpdate(BaseModel):
     """Schema for updating a document."""
 
     title: Optional[str] = Field(None, min_length=1, max_length=500)
+    description: Optional[str] = None
 
 
 class DocumentResponse(DocumentBase):
     """Schema for document response."""
 
     id: UUID
+    description: Optional[str] = None
     original_filename: str
     file_size: int
     mime_type: str
@@ -39,6 +41,7 @@ class DocumentResponse(DocumentBase):
     ocr_text: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    uploaded_by: Optional[UUID] = None
     tags: List["TagResponse"] = []
 
     # LLM-extracted metadata

@@ -29,7 +29,7 @@ export const documentService = {
     return response.data
   },
 
-  async update(id: string, data: { title?: string }): Promise<Document> {
+  async update(id: string, data: { title?: string; description?: string }): Promise<Document> {
     const response = await api.patch<Document>(`/api/v1/documents/${id}`, data)
     return response.data
   },

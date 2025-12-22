@@ -137,36 +137,40 @@ def get_document(
 async def download_document(
     document_id: UUID,
     current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    db: Session = Depends(get_db)
 ):
     """Download a document file."""
     from fastapi.responses import FileResponse
     from app.services.storage_service import StorageService
+    from app.models.document import Document
 
-    try:
-        # Verify document exists and user has access
-        doc = doc_service.get_document(document_id=document_id, user_id=current_user.id)
+    # Query document directly from database to get file_path
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id
+    ).first()
 
-        # Get absolute file path
-        storage = StorageService()
-        file_path = storage.get_file_path(doc.file_path)
-
-        if not file_path.exists():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document file not found"
-            )
-
-        return FileResponse(
-            path=str(file_path),
-            filename=doc.original_filename,
-            media_type=doc.mime_type
-        )
-    except NotFoundError as e:
+    if not document:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
+            detail="Document not found"
         )
+
+    # Get absolute file path
+    storage = StorageService()
+    file_path = storage.get_file_path(document.file_path)
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document file not found on disk"
+        )
+
+    return FileResponse(
+        path=str(file_path),
+        filename=document.original_filename,
+        media_type=document.mime_type
+    )
 
 
 @router.post(

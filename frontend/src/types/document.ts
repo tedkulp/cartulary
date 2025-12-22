@@ -9,6 +9,7 @@ export interface Tag {
 export interface Document {
   id: string
   title: string
+  description?: string
   original_filename: string
   file_size: number
   mime_type: string
@@ -18,6 +19,7 @@ export interface Document {
   ocr_text?: string
   created_at: string
   updated_at: string
+  uploaded_by?: string
   tags: Tag[]
   extracted_title?: string
   extracted_date?: string

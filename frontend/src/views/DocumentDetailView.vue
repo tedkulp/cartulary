@@ -25,6 +25,8 @@ const document = ref<Document | null>(null)
 const loading = ref(false)
 const editingTitle = ref(false)
 const titleEdit = ref('')
+const editingDescription = ref(false)
+const descriptionEdit = ref('')
 
 // Tags
 const availableTags = ref<Tag[]>([])
@@ -38,13 +40,11 @@ const loadPdfBlob = async () => {
   if (!document.value || document.value.file_extension !== 'pdf') return
 
   try {
-    const response = await documentService.downloadFile(document.value.id, document.value.original_filename)
-    // The downloadFile method handles the download, but for viewing we need a different approach
-    // Let's create a separate method for getting the blob URL
-    const apiResponse = await api.get(`/api/v1/documents/${document.value.id}/download`, {
+    // Fetch PDF as blob for viewing (not downloading)
+    const response = await api.get(`/api/v1/documents/${document.value.id}/download`, {
       responseType: 'blob',
     })
-    pdfBlobUrl.value = window.URL.createObjectURL(new Blob([apiResponse.data]))
+    pdfBlobUrl.value = window.URL.createObjectURL(new Blob([response.data]))
   } catch (error) {
     console.error('Failed to load PDF:', error)
   }
@@ -76,6 +76,7 @@ const loadDocument = async () => {
     const id = route.params.id as string
     document.value = await documentService.get(id)
     titleEdit.value = document.value.title
+    descriptionEdit.value = document.value.description || ''
     selectedTags.value = document.value.tags
 
     // Load PDF blob for viewing if it's a PDF
@@ -121,6 +122,29 @@ const saveTitle = async () => {
       severity: 'error',
       summary: 'Error',
       detail: 'Failed to update title',
+      life: 3000,
+    })
+  }
+}
+
+const saveDescription = async () => {
+  if (!document.value) return
+
+  try {
+    await documentService.update(document.value.id, { description: descriptionEdit.value })
+    document.value.description = descriptionEdit.value
+    editingDescription.value = false
+    toast.add({
+      severity: 'success',
+      summary: 'Success',
+      detail: 'Description updated successfully',
+      life: 3000,
+    })
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Failed to update description',
       life: 3000,
     })
   }
@@ -286,6 +310,48 @@ onMounted(() => {
           </div>
 
           <p class="text-gray-600 mt-2">{{ document.original_filename }}</p>
+
+          <!-- Description -->
+          <div class="mt-4">
+            <div v-if="!editingDescription" class="flex items-start gap-2">
+              <div class="flex-1">
+                <p v-if="document.description" class="text-gray-700">
+                  {{ document.description }}
+                </p>
+                <p v-else class="text-gray-400 italic">No description</p>
+              </div>
+              <Button
+                icon="pi pi-pencil"
+                text
+                rounded
+                size="small"
+                @click="editingDescription = true"
+              />
+            </div>
+            <div v-else class="flex flex-col gap-2">
+              <Textarea
+                v-model="descriptionEdit"
+                rows="3"
+                class="w-full"
+                placeholder="Add a description..."
+              />
+              <div class="flex gap-2">
+                <Button
+                  icon="pi pi-check"
+                  label="Save"
+                  size="small"
+                  @click="saveDescription"
+                />
+                <Button
+                  icon="pi pi-times"
+                  label="Cancel"
+                  size="small"
+                  severity="secondary"
+                  @click="editingDescription = false"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="flex gap-2">

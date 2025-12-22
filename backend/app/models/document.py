@@ -30,6 +30,7 @@ class Document(Base):
 
     # File information
     title = Column(String(500), nullable=False)
+    description = Column(Text)  # Optional user description
     original_filename = Column(String(500), nullable=False)
     file_path = Column(String(1000), nullable=False)
     file_size = Column(BigInteger, nullable=False)
@@ -49,6 +50,7 @@ class Document(Base):
 
     # Ownership and permissions
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))  # Who uploaded (may differ from owner)
     is_public = Column(Boolean, default=False, nullable=False)
 
     # Processing status
@@ -70,6 +72,7 @@ class Document(Base):
 
     # Relationships
     owner = relationship("User", back_populates="owned_documents", foreign_keys=[owner_id])
+    uploader = relationship("User", foreign_keys=[uploaded_by])
     versions = relationship("DocumentVersion", back_populates="document", cascade="all, delete-orphan")
     embeddings = relationship("DocumentEmbedding", back_populates="document", cascade="all, delete-orphan")
     tags = relationship("Tag", secondary="document_tags", back_populates="documents")

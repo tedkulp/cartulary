@@ -86,6 +86,7 @@ class DocumentService:
             mime_type=file.content_type or "application/octet-stream",
             checksum=checksum,
             owner_id=user_id,
+            uploaded_by=user_id,  # Track who uploaded the file
             processing_status="pending"  # Will be processed by background task
         )
 
@@ -183,6 +184,8 @@ class DocumentService:
         # Update fields
         if document_update.title is not None:
             document.title = document_update.title
+        if document_update.description is not None:
+            document.description = document_update.description
 
         self.db.commit()
         self.db.refresh(document)
