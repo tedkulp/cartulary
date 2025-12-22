@@ -37,11 +37,18 @@ def process_document(self, document_id: str) -> dict:
 
         logger.info(f"Processing document {document_id}: {doc.original_filename}")
 
+        # Get absolute file path
+        from app.services.storage_service import StorageService
+        storage = StorageService()
+        absolute_path = str(storage.get_file_path(doc.file_path))
+
+        logger.info(f"Absolute file path: {absolute_path}")
+
         # Initialize OCR service
         ocr_service = OCRService()
 
         # Extract text
-        extracted_text = ocr_service.extract_text(doc.file_path)
+        extracted_text = ocr_service.extract_text(absolute_path)
 
         if extracted_text and len(extracted_text.strip()) > 0:
             doc.ocr_text = extracted_text
@@ -58,11 +65,11 @@ def process_document(self, document_id: str) -> dict:
             doc.processing_error = "No text could be extracted from document"
 
         # Count pages if PDF
-        if doc.file_path.endswith(".pdf"):
+        if absolute_path.endswith(".pdf"):
             try:
                 import fitz
 
-                pdf_doc = fitz.open(doc.file_path)
+                pdf_doc = fitz.open(absolute_path)
                 doc.page_count = len(pdf_doc)
                 pdf_doc.close()
             except Exception as e:
