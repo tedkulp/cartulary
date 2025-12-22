@@ -171,16 +171,17 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Authentication system (JWT)
 - [x] Basic document upload with deduplication
 
-### ✅ Phase 2: OCR & Full-Text Search (Current)
+### ✅ Phase 2: OCR & Full-Text Search
 - [x] OCR integration (PaddleOCR - optional)
 - [x] PDF text extraction (PyMuPDF)
 - [x] Background processing (Celery)
 - [x] Full-text search (ILIKE-based)
-- [x] Tag management (backend API)
-- [ ] Tag management UI
-- [ ] Search UI
+- [x] Tag management (backend API + UI)
+- [x] Search UI with results
+- [x] Processing status display
+- [x] Reprocess endpoint for failed documents
 
-### 🔲 Phase 3: Semantic Search
+### 🔲 Phase 3: Semantic Search (Current)
 - [ ] Embedding generation
 - [ ] Vector search
 - [ ] Hybrid search
