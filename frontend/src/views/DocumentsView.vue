@@ -235,6 +235,24 @@ onMounted(() => {
                 </template>
               </Column>
 
+              <Column field="tags" header="Tags">
+                <template #body="{ data }">
+                  <div class="flex flex-wrap gap-1">
+                    <span
+                      v-for="tag in data.tags"
+                      :key="tag.id"
+                      :style="{ backgroundColor: tag.color || '#6366f1', color: '#fff' }"
+                      class="px-2 py-1 rounded text-xs font-medium"
+                    >
+                      {{ tag.name }}
+                    </span>
+                    <span v-if="!data.tags || data.tags.length === 0" class="text-gray-400 text-xs">
+                      No tags
+                    </span>
+                  </div>
+                </template>
+              </Column>
+
               <Column field="created_at" header="Uploaded" sortable>
                 <template #body="{ data }">
                   <span class="text-sm">{{ formatDate(data.created_at) }}</span>

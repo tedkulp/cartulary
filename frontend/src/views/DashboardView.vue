@@ -116,12 +116,17 @@ const handleLogout = () => {
               <span>Basic document upload</span>
             </li>
           </ul>
-          <div class="mt-4">
+          <div class="mt-4 flex gap-3 justify-center">
             <Button
               label="Go to Documents"
-              icon="pi pi-arrow-right"
-              iconPos="right"
+              icon="pi pi-file"
               @click="router.push('/documents')"
+            />
+            <Button
+              label="Manage Tags"
+              icon="pi pi-tags"
+              severity="secondary"
+              @click="router.push('/tags')"
             />
           </div>
         </div>

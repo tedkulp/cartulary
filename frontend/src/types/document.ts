@@ -1,3 +1,11 @@
+export interface Tag {
+  id: string
+  name: string
+  color?: string
+  description?: string
+  created_at: string
+}
+
 export interface Document {
   id: string
   title: string
@@ -10,6 +18,7 @@ export interface Document {
   ocr_text?: string
   created_at: string
   updated_at: string
+  tags: Tag[]
   extracted_title?: string
   extracted_date?: string
   extracted_sender?: string
