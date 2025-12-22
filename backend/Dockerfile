@@ -18,8 +18,14 @@ COPY . .
 # Create directory for document storage
 RUN mkdir -p /data/documents
 
+# Make entrypoint script executable
+RUN chmod +x /app/entrypoint.sh
+
 # Expose port
 EXPOSE 8000
+
+# Set entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]
 
 # Default command (can be overridden in docker-compose)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
