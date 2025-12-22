@@ -5,11 +5,15 @@ import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
+import InputText from 'primevue/inputtext'
+import IconField from 'primevue/iconfield'
+import InputIcon from 'primevue/inputicon'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import DocumentUpload from '@/components/DocumentUpload.vue'
 import { documentService } from '@/services/documentService'
+import { searchService } from '@/services/searchService'
 import type { Document } from '@/types/document'
 
 const router = useRouter()
@@ -18,6 +22,7 @@ const toast = useToast()
 
 const documents = ref<Document[]>([])
 const loading = ref(false)
+const searchQuery = ref('')
 
 const loadDocuments = async () => {
   loading.value = true
@@ -33,6 +38,32 @@ const loadDocuments = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const performSearch = async () => {
+  if (!searchQuery.value.trim()) {
+    loadDocuments()
+    return
+  }
+
+  loading.value = true
+  try {
+    documents.value = await searchService.search(searchQuery.value)
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Failed to search documents',
+      life: 3000,
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+const clearSearch = () => {
+  searchQuery.value = ''
+  loadDocuments()
 }
 
 const handleDocumentUploaded = (document: Document) => {
@@ -111,8 +142,42 @@ onMounted(() => {
       <!-- Documents List -->
       <div class="lg:col-span-2">
         <Card>
-          <template #title>Your Documents</template>
+          <template #title>
+            <div class="flex items-center justify-between">
+              <span>Your Documents</span>
+            </div>
+          </template>
           <template #content>
+            <!-- Search Bar -->
+            <div class="mb-4">
+              <IconField iconPosition="left">
+                <InputIcon class="pi pi-search" />
+                <InputText
+                  v-model="searchQuery"
+                  placeholder="Search documents..."
+                  class="w-full"
+                  @keyup.enter="performSearch"
+                />
+              </IconField>
+              <div class="mt-2 flex gap-2">
+                <Button
+                  label="Search"
+                  icon="pi pi-search"
+                  @click="performSearch"
+                  :loading="loading"
+                  size="small"
+                />
+                <Button
+                  v-if="searchQuery"
+                  label="Clear"
+                  icon="pi pi-times"
+                  @click="clearSearch"
+                  severity="secondary"
+                  size="small"
+                  outlined
+                />
+              </div>
+            </div>
             <DataTable
               :value="documents"
               :loading="loading"
@@ -146,14 +211,26 @@ onMounted(() => {
                 <template #body="{ data }">
                   <span
                     :class="{
-                      'bg-yellow-100 text-yellow-800': data.processing_status === 'pending',
-                      'bg-blue-100 text-blue-800': data.processing_status === 'processing',
-                      'bg-green-100 text-green-800': data.processing_status === 'completed',
-                      'bg-red-100 text-red-800': data.processing_status === 'failed',
+                      'bg-yellow-100 text-yellow-800':
+                        data.processing_status === 'pending',
+                      'bg-blue-100 text-blue-800':
+                        data.processing_status === 'processing',
+                      'bg-green-100 text-green-800':
+                        data.processing_status === 'ocr_complete' ||
+                        data.processing_status === 'embedding_complete' ||
+                        data.processing_status === 'llm_complete',
+                      'bg-red-100 text-red-800':
+                        data.processing_status === 'ocr_failed' ||
+                        data.processing_status === 'failed',
                     }"
-                    class="px-2 py-1 rounded text-xs font-medium"
+                    class="px-2 py-1 rounded text-xs font-medium uppercase"
                   >
-                    {{ data.processing_status }}
+                    {{
+                      data.processing_status
+                        .replace('_', ' ')
+                        .replace('ocr', 'OCR')
+                        .replace('llm', 'LLM')
+                    }}
                   </span>
                 </template>
               </Column>
