@@ -20,6 +20,7 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
+    imports=["app.tasks.document_tasks"],  # Explicitly import task modules
 )
 
 # Auto-discover tasks in the tasks module
