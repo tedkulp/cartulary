@@ -75,3 +75,7 @@ alembic/versions/__pycache__/
 
 # Storage
 /data/
+/document_storage/
+
+# Celery
+backend/celerybeat-schedule

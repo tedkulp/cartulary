@@ -9,7 +9,7 @@ from app.core.exceptions import DuplicateError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.document import DocumentResponse
+from app.schemas.document import DocumentResponse, DocumentUpdate
 from app.services.document_service import DocumentService
 
 router = APIRouter(prefix="/documents", tags=["documents"])

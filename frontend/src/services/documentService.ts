@@ -43,6 +43,25 @@ export const documentService = {
   },
 
   getDownloadUrl(id: string): string {
+    // For authenticated downloads, we need to handle this differently
+    // since iframes and direct links don't send auth headers
     return `/api/v1/documents/${id}/download`
+  },
+
+  async downloadFile(id: string, filename: string): Promise<void> {
+    // Download file with authentication
+    const response = await api.get(`/api/v1/documents/${id}/download`, {
+      responseType: 'blob',
+    })
+
+    // Create blob link and trigger download
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename)
+    document.body.appendChild(link)
+    link.click()
+    link.parentNode?.removeChild(link)
+    window.URL.revokeObjectURL(url)
   },
 }

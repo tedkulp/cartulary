@@ -19,11 +19,17 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Drop the unique constraint on username first
-    op.drop_constraint('users_username_key', 'users', type_='unique')
+    # Check if username column exists before trying to drop it
+    # This migration may run on databases where the column never existed
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('users')]
 
-    # Drop the username column
-    op.drop_column('users', 'username')
+    if 'username' in columns:
+        # Drop the unique constraint on username first
+        op.drop_constraint('users_username_key', 'users', type_='unique')
+        # Drop the username column
+        op.drop_column('users', 'username')
 
 
 def downgrade() -> None:

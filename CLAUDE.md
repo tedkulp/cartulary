@@ -500,18 +500,22 @@ feat(frontend): add document upload component
 
 ### Commit Frequency
 
-**Commit between major steps:**
-- ✅ After setting up project structure
-- ✅ After completing database migrations
-- ✅ After implementing a complete feature (e.g., auth, upload, search)
-- ✅ After fixing a significant bug
-- ✅ At the end of each phase
+**IMPORTANT: Only commit after completing major sections of work. DO NOT commit after every small bug fix or minor change.**
 
-**Commit within large features:**
-- Backend API endpoint complete
-- Frontend component complete
-- Tests passing
-- Integration between frontend/backend working
+**When to commit:**
+- ✅ After completing a full section of the implementation plan (e.g., Phase 1, Phase 2)
+- ✅ After implementing a complete feature end-to-end (backend + frontend + tests)
+- ✅ After a major refactoring is complete
+- ✅ At logical stopping points that represent significant progress
+
+**When NOT to commit:**
+- ❌ After fixing individual bugs during development
+- ❌ After making small adjustments or corrections
+- ❌ After fixing linting or formatting issues
+- ❌ In the middle of implementing a feature
+
+**Philosophy:**
+Work should be batched into meaningful commits that represent completed units of work. Bug fixes and corrections made during development should be included in the commit for the feature being worked on, not committed separately.
 
 **Example commit sequence for Phase 1:**
 ```bash

@@ -14,6 +14,7 @@ import { useToast } from 'primevue/usetoast'
 import { documentService } from '@/services/documentService'
 import { tagService, type Tag } from '@/services/tagService'
 import type { Document } from '@/types/document'
+import api from '@/services/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -30,11 +31,44 @@ const availableTags = ref<Tag[]>([])
 const selectedTags = ref<Tag[]>([])
 const showTagDialog = ref(false)
 
-// PDF URL
-const pdfUrl = computed(() => {
-  if (!document.value) return ''
-  return documentService.getDownloadUrl(document.value.id)
-})
+// PDF Blob URL for authenticated viewing
+const pdfBlobUrl = ref<string>('')
+
+const loadPdfBlob = async () => {
+  if (!document.value || document.value.file_extension !== 'pdf') return
+
+  try {
+    const response = await documentService.downloadFile(document.value.id, document.value.original_filename)
+    // The downloadFile method handles the download, but for viewing we need a different approach
+    // Let's create a separate method for getting the blob URL
+    const apiResponse = await api.get(`/api/v1/documents/${document.value.id}/download`, {
+      responseType: 'blob',
+    })
+    pdfBlobUrl.value = window.URL.createObjectURL(new Blob([apiResponse.data]))
+  } catch (error) {
+    console.error('Failed to load PDF:', error)
+  }
+}
+
+const handleDownload = async () => {
+  if (!document.value) return
+  try {
+    await documentService.downloadFile(document.value.id, document.value.original_filename)
+    toast.add({
+      severity: 'success',
+      summary: 'Success',
+      detail: 'Download started',
+      life: 3000,
+    })
+  } catch (error: any) {
+    toast.add({
+      severity: 'error',
+      summary: 'Error',
+      detail: 'Failed to download document',
+      life: 3000,
+    })
+  }
+}
 
 const loadDocument = async () => {
   loading.value = true
@@ -43,6 +77,11 @@ const loadDocument = async () => {
     document.value = await documentService.get(id)
     titleEdit.value = document.value.title
     selectedTags.value = document.value.tags
+
+    // Load PDF blob for viewing if it's a PDF
+    if (document.value.file_extension === 'pdf') {
+      await loadPdfBlob()
+    }
   } catch (error: any) {
     toast.add({
       severity: 'error',
@@ -263,9 +302,7 @@ onMounted(() => {
           <Button
             label="Download"
             icon="pi pi-download"
-            :href="pdfUrl"
-            as="a"
-            target="_blank"
+            @click="handleDownload"
             severity="secondary"
           />
           <Button
@@ -350,11 +387,11 @@ onMounted(() => {
       </Card>
 
       <!-- PDF Viewer -->
-      <Card v-if="document.file_extension === 'pdf'">
+      <Card v-if="document.file_extension === 'pdf' && pdfBlobUrl">
         <template #title>Document Preview</template>
         <template #content>
           <iframe
-            :src="pdfUrl"
+            :src="pdfBlobUrl"
             class="w-full h-[600px] border rounded"
             title="PDF Preview"
           ></iframe>

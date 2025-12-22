@@ -42,7 +42,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
-      - document_storage:/data/documents
+      - ./document_storage:/data/documents
     ports:
       - "8000:8000"
     environment:
@@ -69,7 +69,7 @@ services:
     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
     volumes:
       - ./backend:/app
-      - document_storage:/data/documents
+      - ./document_storage:/data/documents
     environment:
       - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
       - REDIS_URL=redis://redis:6379/0
