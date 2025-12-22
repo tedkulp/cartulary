@@ -1,0 +1,59 @@
+# Core Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+
+# Database
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+psycopg2-binary>=2.9.9
+asyncpg>=0.29.0
+
+# Validation & Config
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Task Queue
+celery>=5.3.0
+redis>=5.0.0
+
+# Auth
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+authlib>=1.2.0
+
+# Storage
+aiofiles>=23.0.0
+boto3>=1.28.0
+aioboto3>=12.0.0
+
+# OCR & PDF (will add in Phase 2)
+# paddleocr>=2.7.0
+# paddlepaddle>=2.5.0
+# pdf2image>=1.16.3
+# Pillow>=10.0.0
+# pypdfium2>=4.0.0
+# img2pdf>=0.5.0
+
+# Embeddings & LLM (will add in Phases 3-4)
+# sentence-transformers>=2.2.0
+# langchain>=0.1.0
+# langchain-openai>=0.0.5
+# langchain-google-genai>=0.0.5
+# openai>=1.0.0
+# google-generativeai>=0.3.0
+
+# Vector DB
+pgvector>=0.2.0
+
+# Email (will add in Phase 6)
+# imapclient>=2.3.0
+
+# File Watching (will add in Phase 6)
+# watchdog>=3.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+httpx>=0.25.0
