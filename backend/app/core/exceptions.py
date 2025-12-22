@@ -1,12 +1,19 @@
 """Custom exceptions for the application."""
+from typing import Any, Optional
 
 
 class TrapperException(Exception):
     """Base exception for Trapper application."""
 
-    def __init__(self, message: str, status_code: int = 400):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        detail: Optional[dict[str, Any]] = None
+    ):
         self.message = message
         self.status_code = status_code
+        self.detail = detail or {}
         super().__init__(self.message)
 
 
@@ -34,5 +41,9 @@ class NotFoundError(TrapperException):
 class DuplicateError(TrapperException):
     """Exception raised when trying to create duplicate resource."""
 
-    def __init__(self, message: str = "Resource already exists"):
-        super().__init__(message, status_code=409)
+    def __init__(
+        self,
+        message: str = "Resource already exists",
+        detail: Optional[dict[str, Any]] = None
+    ):
+        super().__init__(message, status_code=409, detail=detail)

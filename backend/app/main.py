@@ -15,14 +15,14 @@ app = FastAPI(
 )
 
 # Configure CORS
-if settings.BACKEND_CORS_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.BACKEND_CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+cors_origins = settings.BACKEND_CORS_ORIGINS or ["http://localhost:5173", "http://localhost:3000"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -42,13 +42,13 @@ async def health_check():
 
 
 # Import and include routers
-from app.api.v1 import auth
+from app.api.v1 import auth, documents
 
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
 
 # TODO: Add other routers as they are implemented
-# from app.api.v1 import documents, search, tags, users
-# app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
+# from app.api.v1 import search, tags, users
 # app.include_router(search.router, prefix=settings.API_V1_PREFIX)
 # app.include_router(tags.router, prefix=settings.API_V1_PREFIX)
 # app.include_router(users.router, prefix=settings.API_V1_PREFIX)

@@ -35,8 +35,13 @@ const handleLogout = () => {
         <h1 class="text-2xl font-bold text-gray-900">{{ appName }}</h1>
         <div class="flex items-center gap-4">
           <div class="text-sm text-gray-600">
-            Welcome, <span class="font-medium">{{ authStore.user?.username }}</span>
+            Welcome, <span class="font-medium">{{ authStore.user?.email }}</span>
           </div>
+          <Button
+            label="Documents"
+            icon="pi pi-file"
+            @click="router.push('/documents')"
+          />
           <Button
             label="Logout"
             icon="pi pi-sign-out"
@@ -107,8 +112,37 @@ const handleLogout = () => {
               <span>User registration and login</span>
             </li>
             <li class="flex items-start">
-              <span class="text-yellow-600 mr-2">⏳</span>
-              <span>Basic document upload (Coming next)</span>
+              <span class="text-green-600 mr-2">✓</span>
+              <span>Basic document upload</span>
+            </li>
+          </ul>
+          <div class="mt-4">
+            <Button
+              label="Go to Documents"
+              icon="pi pi-arrow-right"
+              iconPos="right"
+              @click="router.push('/documents')"
+            />
+          </div>
+        </div>
+
+        <!-- Next Steps -->
+        <div class="bg-gray-100 rounded-lg p-6 max-w-2xl mx-auto mt-6">
+          <h3 class="text-lg font-semibold text-gray-900 mb-3">
+            📋 Coming Soon
+          </h3>
+          <ul class="text-left text-sm text-gray-700 space-y-2">
+            <li class="flex items-start">
+              <span class="text-gray-400 mr-2">○</span>
+              <span>OCR processing with PaddleOCR</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-gray-400 mr-2">○</span>
+              <span>Semantic search with RAG</span>
+            </li>
+            <li class="flex items-start">
+              <span class="text-gray-400 mr-2">○</span>
+              <span>LLM-based metadata extraction</span>
             </li>
           </ul>
         </div>

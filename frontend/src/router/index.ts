@@ -21,6 +21,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/DashboardView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/documents',
+    name: 'documents',
+    component: () => import('@/views/DocumentsView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
