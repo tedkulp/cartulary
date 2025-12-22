@@ -196,8 +196,15 @@ onMounted(() => {
 
               <Column field="title" header="Title" sortable>
                 <template #body="{ data }">
-                  <div class="font-medium">{{ data.title }}</div>
-                  <div class="text-sm text-gray-500">{{ data.original_filename }}</div>
+                  <div>
+                    <router-link
+                      :to="`/documents/${data.id}`"
+                      class="font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      {{ data.title }}
+                    </router-link>
+                    <div class="text-sm text-gray-500">{{ data.original_filename }}</div>
+                  </div>
                 </template>
               </Column>
 
