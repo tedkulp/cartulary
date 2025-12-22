@@ -52,31 +52,31 @@ class OCRService:
             file_path: Path to the file to process
 
         Returns:
-            Extracted text or None if OCR is disabled/failed
+            Extracted text or None if extraction failed
         """
-        if not self.enabled:
-            logger.info("OCR is disabled, skipping text extraction")
-            return None
-
-        self._initialize_engine()
-
-        if self._ocr_engine is None:
-            return None
-
         try:
             file_path_obj = Path(file_path)
             if not file_path_obj.exists():
                 logger.error(f"File not found: {file_path}")
                 return None
 
-            # Handle PDF files by converting to images first
+            # Handle PDF files - always try to extract embedded text first
             if file_path_obj.suffix.lower() == ".pdf":
                 return self._extract_text_from_pdf(file_path)
-            else:
-                return self._extract_text_from_image(file_path)
+
+            # For images, we need OCR
+            if not self.enabled:
+                logger.info("OCR is disabled, cannot extract text from images")
+                return None
+
+            self._initialize_engine()
+            if self._ocr_engine is None:
+                return None
+
+            return self._extract_text_from_image(file_path)
 
         except Exception as e:
-            logger.error(f"OCR extraction failed for {file_path}: {e}")
+            logger.error(f"Text extraction failed for {file_path}: {e}")
             return None
 
     def _extract_text_from_image(self, image_path: str) -> Optional[str]:
@@ -132,20 +132,22 @@ class OCRService:
                 # First try to extract embedded text
                 text = page.get_text()
 
-                # If no embedded text or very little, use OCR
-                if not text or len(text.strip()) < 50:
-                    # Convert page to image
-                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x scale for better OCR
-                    img_path = f"/tmp/page_{page_num}.png"
-                    pix.save(img_path)
+                # If no embedded text or very little, use OCR (if available)
+                if (not text or len(text.strip()) < 50) and self.enabled:
+                    self._initialize_engine()
+                    if self._ocr_engine:
+                        # Convert page to image
+                        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x scale for better OCR
+                        img_path = f"/tmp/page_{page_num}.png"
+                        pix.save(img_path)
 
-                    # Run OCR on the image
-                    ocr_text = self._extract_text_from_image(img_path)
-                    if ocr_text:
-                        text = ocr_text
+                        # Run OCR on the image
+                        ocr_text = self._extract_text_from_image(img_path)
+                        if ocr_text:
+                            text = ocr_text
 
-                    # Clean up temp file
-                    Path(img_path).unlink(missing_ok=True)
+                        # Clean up temp file
+                        Path(img_path).unlink(missing_ok=True)
 
                 if text:
                     all_text.append(text)
