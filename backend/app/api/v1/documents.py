@@ -129,6 +129,39 @@ def get_document(
         )
 
 
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=dict,
+    summary="Reprocess document",
+    description="Retry OCR processing for a failed or pending document"
+)
+def reprocess_document(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    doc_service: DocumentService = Depends(get_document_service)
+):
+    """Reprocess a document (retry OCR)."""
+    try:
+        # Verify document exists and user has access
+        doc_service.get_document(document_id=document_id, user_id=current_user.id)
+
+        # Trigger reprocessing
+        from app.tasks.document_tasks import reprocess_document as reprocess_task
+
+        task = reprocess_task.delay(str(document_id))
+
+        return {
+            "message": "Document reprocessing triggered",
+            "document_id": str(document_id),
+            "task_id": task.id
+        }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+
+
 @router.delete(
     "/{document_id}",
     status_code=status.HTTP_204_NO_CONTENT,

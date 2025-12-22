@@ -43,15 +43,19 @@ def process_document(self, document_id: str) -> dict:
         # Extract text
         extracted_text = ocr_service.extract_text(doc.file_path)
 
-        if extracted_text:
+        if extracted_text and len(extracted_text.strip()) > 0:
             doc.ocr_text = extracted_text
             doc.ocr_language = ocr_service.detect_language(extracted_text)
+            doc.processing_status = "ocr_complete"
             logger.info(
                 f"Extracted {len(extracted_text)} characters from {doc.original_filename}"
             )
         else:
             logger.warning(f"No text extracted from {doc.original_filename}")
             doc.ocr_text = ""
+            # Mark as pending for retry or manual processing
+            doc.processing_status = "ocr_failed"
+            doc.processing_error = "No text could be extracted from document"
 
         # Count pages if PDF
         if doc.file_path.endswith(".pdf"):
@@ -64,12 +68,11 @@ def process_document(self, document_id: str) -> dict:
             except Exception as e:
                 logger.error(f"Failed to count PDF pages: {e}")
 
-        # Update status
-        doc.processing_status = "ocr_complete"
-        doc.processing_error = None
         db.commit()
 
-        logger.info(f"Successfully processed document {document_id}")
+        logger.info(
+            f"Processed document {document_id} with status: {doc.processing_status}"
+        )
 
         return {
             "status": "success",
