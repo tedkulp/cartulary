@@ -11,7 +11,6 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const email = ref('')
-const username = ref('')
 const password = ref('')
 const fullName = ref('')
 
@@ -20,7 +19,6 @@ const handleRegister = async () => {
 
   const success = await authStore.register({
     email: email.value,
-    username: username.value,
     password: password.value,
     full_name: fullName.value || undefined,
   })
@@ -60,21 +58,6 @@ const handleRegister = async () => {
         </div>
 
         <div class="space-y-2">
-          <label for="username" class="block text-sm font-medium text-gray-700">
-            Username
-          </label>
-          <InputText
-            id="username"
-            v-model="username"
-            placeholder="Username"
-            class="w-full"
-            required
-            minlength="3"
-            :disabled="authStore.loading"
-          />
-        </div>
-
-        <div class="space-y-2">
           <label for="fullName" class="block text-sm font-medium text-gray-700">
             Full Name (Optional)
           </label>
@@ -94,11 +77,12 @@ const handleRegister = async () => {
           <Password
             id="password"
             v-model="password"
-            placeholder="Enter your password (min 8 characters)"
+            placeholder="Enter your password (8-32 characters)"
             class="w-full"
             toggleMask
             required
             minlength="8"
+            maxlength="32"
             :disabled="authStore.loading"
             :pt="{
               input: { class: 'w-full' }

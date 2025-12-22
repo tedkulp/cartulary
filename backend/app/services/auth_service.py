@@ -34,24 +34,18 @@ class AuthService:
             Created user
 
         Raises:
-            DuplicateError: If email or username already exists
+            DuplicateError: If email already exists
         """
         # Check if user already exists
-        existing_user = self.db.query(User).filter(
-            (User.email == user_data.email) | (User.username == user_data.username)
-        ).first()
+        existing_user = self.db.query(User).filter(User.email == user_data.email).first()
 
         if existing_user:
-            if existing_user.email == user_data.email:
-                raise DuplicateError("Email already registered")
-            else:
-                raise DuplicateError("Username already taken")
+            raise DuplicateError("Email already registered")
 
         # Create new user
         hashed_password = get_password_hash(user_data.password)
         db_user = User(
             email=user_data.email,
-            username=user_data.username,
             hashed_password=hashed_password,
             full_name=user_data.full_name,
             is_active=True,

@@ -529,10 +529,7 @@ feat(frontend): add document upload component
 
 ## Common Tasks
 
-### Start Development Environment
-```bash
-docker-compose up -d
-```
+**IMPORTANT: DO NOT run `docker compose up` or `docker compose build` commands. The user will handle Docker operations manually.**
 
 ### Run Backend Locally (outside Docker)
 ```bash
@@ -568,9 +565,7 @@ alembic upgrade head
 ```
 
 ### Restart Celery Worker
-```bash
-docker-compose restart celery_worker
-```
+Note: User will handle Docker operations manually.
 
 ## Troubleshooting
 

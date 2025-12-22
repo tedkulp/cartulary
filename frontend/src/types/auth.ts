@@ -1,7 +1,6 @@
 export interface User {
   id: string
   email: string
-  username: string
   full_name?: string
   is_active: boolean
   is_superuser: boolean
@@ -15,7 +14,6 @@ export interface LoginCredentials {
 
 export interface RegisterData {
   email: string
-  username: string
   password: string
   full_name?: string
 }

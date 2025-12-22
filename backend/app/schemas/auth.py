@@ -7,15 +7,14 @@ class UserLogin(BaseModel):
     """Schema for user login."""
 
     email: EmailStr
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=8, max_length=100)
 
 
 class UserRegister(BaseModel):
     """Schema for user registration."""
 
     email: EmailStr
-    username: str = Field(..., min_length=3, max_length=100)
-    password: str = Field(..., min_length=8)
+    password: str = Field(..., min_length=8, max_length=100)
     full_name: Optional[str] = None
 
 

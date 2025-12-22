@@ -67,6 +67,7 @@ const handleLogin = async () => {
             :feedback="false"
             toggleMask
             required
+            maxlength="32"
             :disabled="authStore.loading"
             :pt="{
               input: { class: 'w-full' }
