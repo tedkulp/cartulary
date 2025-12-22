@@ -8,6 +8,7 @@ celery_app = Celery(
     "trapper",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
+    include=["app.tasks.document_tasks"],  # Include task modules
 )
 
 # Configure Celery
@@ -20,8 +21,4 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
-    imports=["app.tasks.document_tasks"],  # Explicitly import task modules
 )
-
-# Auto-discover tasks in the tasks module
-celery_app.autodiscover_tasks(["app.tasks"])
