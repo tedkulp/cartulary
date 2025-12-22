@@ -93,6 +93,11 @@ class DocumentService:
         self.db.commit()
         self.db.refresh(db_document)
 
+        # Trigger background processing
+        from app.tasks.document_tasks import process_document
+
+        process_document.delay(str(db_document.id))
+
         return DocumentResponse.model_validate(db_document)
 
     def get_document(self, document_id: UUID, user_id: UUID) -> DocumentResponse:

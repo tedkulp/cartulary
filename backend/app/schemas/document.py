@@ -1,9 +1,12 @@
 """Document schemas."""
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, computed_field
+
+if TYPE_CHECKING:
+    from app.schemas.tag import TagResponse
 
 
 class DocumentBase(BaseModel):
@@ -36,6 +39,7 @@ class DocumentResponse(DocumentBase):
     ocr_text: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    tags: List["TagResponse"] = []
 
     # LLM-extracted metadata
     extracted_title: Optional[str] = None
@@ -62,3 +66,9 @@ class DocumentListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+# Import TagResponse and update forward references
+from app.schemas.tag import TagResponse
+
+DocumentResponse.model_rebuild()

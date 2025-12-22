@@ -28,13 +28,13 @@ aiofiles>=23.0.0
 boto3>=1.28.0
 aioboto3>=12.0.0
 
-# OCR & PDF (will add in Phase 2)
+# OCR & PDF
+PyMuPDF>=1.23.0  # For PDF text extraction
+Pillow>=10.0.0  # For image processing
+
+# Optional OCR (uncomment to enable PaddleOCR)
 # paddleocr>=2.7.0
 # paddlepaddle>=2.5.0
-# pdf2image>=1.16.3
-# Pillow>=10.0.0
-# pypdfium2>=4.0.0
-# img2pdf>=0.5.0
 
 # Embeddings & LLM (will add in Phases 3-4)
 # sentence-transformers>=2.2.0
