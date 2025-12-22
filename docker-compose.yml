@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -96,6 +94,8 @@ services:
       - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
     depends_on:
       - postgres
       - redis
