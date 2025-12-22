@@ -42,8 +42,12 @@ async def health_check():
 
 
 # Import and include routers
-# from app.api.v1 import auth, documents, search, tags, users
-# app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+from app.api.v1 import auth
+
+app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+
+# TODO: Add other routers as they are implemented
+# from app.api.v1 import documents, search, tags, users
 # app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
 # app.include_router(search.router, prefix=settings.API_V1_PREFIX)
 # app.include_router(tags.router, prefix=settings.API_V1_PREFIX)
