@@ -1,8 +1,12 @@
 """Main FastAPI application."""
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.core.startup import startup_checks
+
+logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -13,6 +17,17 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_PREFIX}/redoc",
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
 )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Run startup checks and initialization."""
+    try:
+        startup_checks()
+    except Exception as e:
+        logger.error(f"Startup validation failed: {e}")
+        # Log the error but don't prevent startup (database might not be ready yet)
+        # The validation will run again on first use
 
 # Configure CORS
 cors_origins = settings.BACKEND_CORS_ORIGINS or ["http://localhost:5173", "http://localhost:3000"]

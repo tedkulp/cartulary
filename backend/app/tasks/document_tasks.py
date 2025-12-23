@@ -145,42 +145,97 @@ def generate_embeddings(self, document_id: str) -> dict:
     """
     db: Session = SessionLocal()
     try:
-        # Get document from database
-        doc = db.query(Document).filter(Document.id == UUID(document_id)).first()
-        if not doc:
+        # Get document from database using raw SQL to avoid SQLAlchemy lazy-loading issues
+        from sqlalchemy import text as sql_text
+        result = db.execute(
+            sql_text("SELECT ocr_text FROM documents WHERE id = :doc_id"),
+            {"doc_id": document_id}
+        )
+        row = result.fetchone()
+
+        if not row:
             logger.error(f"Document not found: {document_id}")
             return {"status": "error", "message": "Document not found"}
 
-        if not doc.ocr_text:
+        ocr_text = row[0]
+        if not ocr_text:
             logger.warning(f"No OCR text available for document {document_id}")
             return {"status": "skipped", "message": "No text to embed"}
 
+        # Make a plain Python string copy to avoid any SQLAlchemy proxy issues
+        ocr_text_copy = str(ocr_text)
+
         logger.info(f"Generating embeddings for document {document_id}")
+        logger.info(f"Document has {len(ocr_text_copy)} characters of text")
 
         # Delete existing embeddings for this document
         db.query(DocumentEmbedding).filter(
-            DocumentEmbedding.document_id == doc.id
+            DocumentEmbedding.document_id == UUID(document_id)
         ).delete()
         db.commit()
 
-        # Initialize embedding service
-        embedding_service = EmbeddingService()
+        # Initialize embedding service with settings
+        from app.config import settings
+
+        logger.info(f"About to initialize EmbeddingService with provider={settings.EMBEDDING_PROVIDER}")
+
+        try:
+            embedding_service = EmbeddingService(
+                provider=settings.EMBEDDING_PROVIDER,
+                model_name=settings.EMBEDDING_MODEL,
+                api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
+                dimension=settings.EMBEDDING_DIMENSION,
+            )
+            logger.info(f"EmbeddingService initialized successfully")
+        except Exception as init_error:
+            logger.error(f"Failed to initialize EmbeddingService: {init_error}", exc_info=True)
+            raise
+
+        logger.info(f"Using {settings.EMBEDDING_PROVIDER} embeddings with model {settings.EMBEDDING_MODEL} (dimension: {settings.EMBEDDING_DIMENSION})")
 
         # Chunk the text
-        chunks = embedding_service.chunk_text(doc.ocr_text, chunk_size=500, chunk_overlap=50)
-        logger.info(f"Split text into {len(chunks)} chunks")
+        logger.info(f"About to chunk text ({len(ocr_text_copy)} characters)")
+        logger.info(f"Text type: {type(ocr_text_copy)}")
+        logger.info(f"Text preview (first 100 chars): {ocr_text_copy[:100]}")
+        logger.info(f"Chunk size: {settings.EMBEDDING_CHUNK_SIZE}, overlap: {settings.EMBEDDING_CHUNK_OVERLAP}")
+
+        # CRITICAL WORKAROUND: Use simplest possible chunking to avoid mysterious hangs
+        logger.info("Using simple fixed-size chunking (no rfind, no strip)...")
+        chunk_size = settings.EMBEDDING_CHUNK_SIZE
+        chunks = []
+
+        logger.info(f"Starting loop: text length is {len(ocr_text_copy)}")
+        i = 0
+        while i < len(ocr_text_copy):
+            logger.info(f"Loop iteration {len(chunks)}: i={i}")
+            end = min(i + chunk_size, len(ocr_text_copy))
+            chunk = ocr_text_copy[i:end]
+            chunks.append(chunk)
+            i = end
+            logger.info(f"Added chunk {len(chunks)}, next i={i}")
+
+        logger.info(f"✓ Loop completed, got {len(chunks)} chunks")
 
         if not chunks:
             logger.warning(f"No chunks generated for document {document_id}")
             return {"status": "skipped", "message": "No chunks to embed"}
 
-        # Generate embeddings for all chunks
-        embeddings = embedding_service.generate_embeddings(chunks)
+        # Generate embeddings for all chunks (process in batches of 8 to avoid memory issues)
+        logger.info(f"About to start embedding generation for {len(chunks)} chunks...")
+        logger.info(f"First chunk preview: {chunks[0][:100]}...")
+
+        try:
+            embeddings = embedding_service.generate_embeddings(chunks, batch_size=8)
+            logger.info(f"Completed embedding generation - got {len(embeddings)} embeddings")
+        except Exception as embed_error:
+            logger.error(f"Failed to generate embeddings: {embed_error}", exc_info=True)
+            raise
 
         # Store embeddings in database
+        doc_uuid = UUID(document_id)
         for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
             doc_embedding = DocumentEmbedding(
-                document_id=doc.id,
+                document_id=doc_uuid,
                 chunk_index=idx,
                 chunk_text=chunk,
                 embedding=embedding,
@@ -188,8 +243,11 @@ def generate_embeddings(self, document_id: str) -> dict:
             )
             db.add(doc_embedding)
 
-        # Update document status
-        doc.processing_status = "embedding_complete"
+        # Update document status using raw SQL
+        db.execute(
+            sql_text("UPDATE documents SET processing_status = 'embedding_complete' WHERE id = :doc_id"),
+            {"doc_id": document_id}
+        )
         db.commit()
 
         logger.info(
@@ -208,13 +266,13 @@ def generate_embeddings(self, document_id: str) -> dict:
             f"Error generating embeddings for document {document_id}: {e}", exc_info=True
         )
 
-        # Update document with error status
+        # Update document with error status using raw SQL
         try:
-            doc = db.query(Document).filter(Document.id == UUID(document_id)).first()
-            if doc:
-                doc.processing_status = "failed"
-                doc.processing_error = f"Embedding generation failed: {str(e)}"
-                db.commit()
+            db.execute(
+                sql_text("UPDATE documents SET processing_status = 'failed', processing_error = :error WHERE id = :doc_id"),
+                {"error": f"Embedding generation failed: {str(e)}", "doc_id": document_id}
+            )
+            db.commit()
         except Exception as db_error:
             logger.error(f"Failed to update error status: {db_error}")
 

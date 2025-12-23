@@ -38,10 +38,10 @@ Pillow>=10.0.0  # For image processing
 
 # Embeddings & LLM
 sentence-transformers>=2.2.0
+openai>=1.0.0  # For OpenAI embeddings (optional, set EMBEDDING_PROVIDER=openai)
 # langchain>=0.1.0
 # langchain-openai>=0.0.5
 # langchain-google-genai>=0.0.5
-# openai>=1.0.0
 # google-generativeai>=0.3.0
 
 # Vector DB

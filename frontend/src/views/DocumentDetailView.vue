@@ -226,6 +226,36 @@ const handleReprocess = () => {
   })
 }
 
+const handleRegenerateEmbeddings = () => {
+  if (!document.value) return
+
+  confirm.require({
+    message: 'Regenerate embeddings for this document? This will create new vector embeddings from the extracted text.',
+    header: 'Confirm Regenerate Embeddings',
+    icon: 'pi pi-refresh',
+    accept: async () => {
+      try {
+        await documentService.regenerateEmbeddings(document.value!.id)
+        toast.add({
+          severity: 'success',
+          summary: 'Success',
+          detail: 'Embedding generation started',
+          life: 3000,
+        })
+        // Reload document after a delay
+        setTimeout(loadDocument, 2000)
+      } catch (error: any) {
+        toast.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: error.response?.data?.detail || 'Failed to regenerate embeddings',
+          life: 3000,
+        })
+      }
+    },
+  })
+}
+
 const handleDelete = () => {
   if (!document.value) return
 
@@ -356,14 +386,19 @@ onMounted(() => {
 
         <div class="flex gap-2">
           <Button
-            v-if="
-              document.processing_status === 'ocr_failed' ||
-              document.processing_status === 'failed'
-            "
-            label="Reprocess"
+            label="Reprocess OCR"
             icon="pi pi-refresh"
             @click="handleReprocess"
-            severity="warning"
+            severity="secondary"
+            outlined
+          />
+          <Button
+            v-if="document.ocr_text"
+            label="Regenerate Embeddings"
+            icon="pi pi-sparkles"
+            @click="handleRegenerateEmbeddings"
+            severity="secondary"
+            outlined
           />
           <Button
             label="Download"

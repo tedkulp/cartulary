@@ -107,7 +107,9 @@ class DocumentEmbedding(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
     chunk_index = Column(Integer)  # For chunked documents
     chunk_text = Column(Text)  # The text that was embedded
-    embedding = Column(Vector(384))  # Adjust dimension based on model (384 for sentence-transformers, 1536 for OpenAI)
+    # Import settings to get configured dimension
+    from app.config import settings
+    embedding = Column(Vector(settings.EMBEDDING_DIMENSION))  # Dynamic dimension based on provider
     embedding_model = Column(String(100))  # Track which model generated this
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

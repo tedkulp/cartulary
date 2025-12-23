@@ -8,12 +8,13 @@ import Card from 'primevue/card'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
+import Dropdown from 'primevue/dropdown'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import DocumentUpload from '@/components/DocumentUpload.vue'
 import { documentService } from '@/services/documentService'
-import { searchService } from '@/services/searchService'
+import { searchService, type SearchMode } from '@/services/searchService'
 import type { Document } from '@/types/document'
 
 const router = useRouter()
@@ -23,6 +24,12 @@ const toast = useToast()
 const documents = ref<Document[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
+const searchMode = ref<SearchMode>('hybrid')
+const searchModes = [
+  { label: 'Hybrid (Best)', value: 'hybrid' },
+  { label: 'Semantic (Meaning)', value: 'semantic' },
+  { label: 'Keyword (Fast)', value: 'fulltext' },
+]
 
 const loadDocuments = async () => {
   loading.value = true
@@ -48,7 +55,11 @@ const performSearch = async () => {
 
   loading.value = true
   try {
-    documents.value = await searchService.search(searchQuery.value)
+    const results = await searchService.advancedSearch(
+      searchQuery.value,
+      searchMode.value
+    )
+    documents.value = results.map((r) => r.document)
   } catch (error: any) {
     toast.add({
       severity: 'error',
@@ -159,13 +170,21 @@ onMounted(() => {
                   @keyup.enter="performSearch"
                 />
               </IconField>
-              <div class="mt-2 flex gap-2">
+              <div class="mt-2 flex gap-2 items-center">
                 <Button
                   label="Search"
                   icon="pi pi-search"
                   @click="performSearch"
                   :loading="loading"
                   size="small"
+                />
+                <Dropdown
+                  v-model="searchMode"
+                  :options="searchModes"
+                  optionLabel="label"
+                  optionValue="value"
+                  placeholder="Search Mode"
+                  class="w-48"
                 />
                 <Button
                   v-if="searchQuery"

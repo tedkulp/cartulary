@@ -104,7 +104,7 @@ async def advanced_search(
         results = vector_search_service.hybrid_search(q, current_user.id, limit=limit)
     else:
         # Full-text search (default)
-        docs = search_service.search(q, current_user.id, skip=0, limit=limit)
+        docs = search_service.search_documents(q, current_user.id, skip=0, limit=limit)
         results = [(doc, 1.0) for doc in docs]  # Assign score of 1.0 to all FTS results
 
     # Convert to SearchResult objects

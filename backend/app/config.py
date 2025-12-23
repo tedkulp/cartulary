@@ -78,10 +78,11 @@ class Settings(BaseSettings):
     # Embeddings (Phase 3)
     EMBEDDING_ENABLED: bool = False  # Enable/disable automatic embedding generation
     EMBEDDING_PROVIDER: str = "local"  # local, openai
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
-    EMBEDDING_DIMENSION: int = 384
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # For local: all-MiniLM-L6-v2, For OpenAI: text-embedding-3-small
+    EMBEDDING_DIMENSION: int = 384  # 384 for MiniLM, 1536 for OpenAI text-embedding-3-small
     EMBEDDING_CHUNK_SIZE: int = 500
     EMBEDDING_CHUNK_OVERLAP: int = 50
+    OPENAI_API_KEY: Optional[str] = None  # Required if EMBEDDING_PROVIDER=openai
 
     # LLM (Phase 4 - Optional)
     LLM_ENABLED: bool = False

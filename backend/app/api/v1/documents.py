@@ -206,6 +206,46 @@ def reprocess_document(
         )
 
 
+@router.post(
+    "/{document_id}/regenerate-embeddings",
+    response_model=dict,
+    summary="Regenerate embeddings",
+    description="Regenerate vector embeddings for a document"
+)
+def regenerate_embeddings(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    doc_service: DocumentService = Depends(get_document_service)
+):
+    """Regenerate embeddings for a document."""
+    try:
+        # Verify document exists and user has access
+        document = doc_service.get_document(document_id=document_id, user_id=current_user.id)
+
+        # Check if document has OCR text
+        if not document.ocr_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Document has no extracted text. Run OCR first."
+            )
+
+        # Trigger embedding generation
+        from app.tasks.document_tasks import generate_embeddings
+
+        task = generate_embeddings.delay(str(document_id))
+
+        return {
+            "message": "Embedding generation triggered",
+            "document_id": str(document_id),
+            "task_id": task.id
+        }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+
+
 @router.patch(
     "/{document_id}",
     response_model=DocumentResponse,

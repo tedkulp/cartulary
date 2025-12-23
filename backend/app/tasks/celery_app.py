@@ -1,7 +1,11 @@
 """Celery application configuration."""
+import logging
 from celery import Celery
+from celery.signals import worker_ready
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Create Celery app
 celery_app = Celery(
@@ -22,3 +26,15 @@ celery_app.conf.update(
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
 )
+
+
+@worker_ready.connect
+def on_worker_ready(sender, **kwargs):
+    """Run startup checks when Celery worker is ready."""
+    logger.info("Celery worker ready, running startup checks...")
+    try:
+        from app.core.startup import startup_checks
+        startup_checks()
+    except Exception as e:
+        logger.error(f"Celery worker startup validation failed: {e}")
+        # Log but don't crash the worker

@@ -53,6 +53,11 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - DEBUG=true
       - BACKEND_CORS_ORIGINS=["http://localhost:5173"]
+      - EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-false}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,7 +71,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: trapper-celery-worker
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    command: celery -A app.tasks.celery_app worker --loglevel DEBUG
     volumes:
       - ./backend:/app
       - ./document_storage:/data/documents
@@ -76,6 +81,11 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-false}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     depends_on:
       - postgres
       - redis

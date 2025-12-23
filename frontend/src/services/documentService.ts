@@ -42,6 +42,10 @@ export const documentService = {
     await api.post(`/api/v1/documents/${id}/reprocess`)
   },
 
+  async regenerateEmbeddings(id: string): Promise<void> {
+    await api.post(`/api/v1/documents/${id}/regenerate-embeddings`)
+  },
+
   getDownloadUrl(id: string): string {
     // For authenticated downloads, we need to handle this differently
     // since iframes and direct links don't send auth headers

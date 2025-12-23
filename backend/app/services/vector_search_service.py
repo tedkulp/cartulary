@@ -24,7 +24,17 @@ class VectorSearchService:
             embedding_service: Optional embedding service (will create if not provided)
         """
         self.db = db
-        self.embedding_service = embedding_service or EmbeddingService()
+        if embedding_service:
+            self.embedding_service = embedding_service
+        else:
+            # Create embedding service with settings
+            from app.config import settings
+            self.embedding_service = EmbeddingService(
+                provider=settings.EMBEDDING_PROVIDER,
+                model_name=settings.EMBEDDING_MODEL,
+                api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
+                dimension=settings.EMBEDDING_DIMENSION,
+            )
 
     def vector_search(
         self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.0
@@ -46,7 +56,12 @@ class VectorSearchService:
 
         # Perform vector search using pgvector's cosine similarity operator (<=>)
         # Note: pgvector uses distance (lower is better), so we calculate 1 - distance to get similarity
-        sql = text("""
+        # Format embedding as PostgreSQL array literal
+        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+
+        # Build the SQL query with direct string formatting for the vector
+        # (SQLAlchemy text() doesn't handle vector type well with parameters)
+        sql = text(f"""
             SELECT DISTINCT ON (d.id)
                 d.id,
                 d.title,
@@ -61,11 +76,11 @@ class VectorSearchService:
                 d.updated_at,
                 d.uploaded_by,
                 de.chunk_text,
-                1 - (de.embedding <=> :query_embedding::vector) as similarity
+                1 - (de.embedding <=> '{embedding_str}'::vector) as similarity
             FROM documents d
             INNER JOIN document_embeddings de ON d.id = de.document_id
             WHERE d.owner_id = :user_id
-            AND 1 - (de.embedding <=> :query_embedding::vector) >= :threshold
+            AND 1 - (de.embedding <=> '{embedding_str}'::vector) >= :threshold
             ORDER BY d.id, similarity DESC
             LIMIT :limit
         """)
@@ -73,7 +88,6 @@ class VectorSearchService:
         result = self.db.execute(
             sql,
             {
-                "query_embedding": query_embedding,
                 "user_id": str(user_id),
                 "threshold": similarity_threshold,
                 "limit": limit,
@@ -132,7 +146,7 @@ class VectorSearchService:
 
         # Perform both searches
         search_service = SearchService(self.db)
-        fts_results = search_service.search(query, user_id, skip=0, limit=limit * 2)
+        fts_results = search_service.search_documents(query, user_id, skip=0, limit=limit * 2)
         vector_results = self.vector_search(query, user_id, limit=limit * 2)
 
         # Apply Reciprocal Rank Fusion
