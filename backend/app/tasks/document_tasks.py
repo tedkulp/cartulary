@@ -5,6 +5,7 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models.document import Document, DocumentEmbedding
 from app.services.ocr_service import OCRService
