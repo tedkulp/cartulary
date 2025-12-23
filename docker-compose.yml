@@ -58,6 +58,11 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,6 +91,11 @@ services:
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     depends_on:
       - postgres
       - redis
