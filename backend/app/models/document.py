@@ -46,6 +46,7 @@ class Document(Base):
     extracted_title = Column(String(500))
     extracted_date = Column(Date)
     extracted_correspondent = Column(String(255))
+    extracted_document_type = Column(String(100))
     extracted_summary = Column(Text)
 
     # Ownership and permissions
