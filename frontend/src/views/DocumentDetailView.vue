@@ -256,6 +256,37 @@ const handleRegenerateEmbeddings = () => {
   })
 }
 
+const handleRegenerateMetadata = () => {
+  if (!document.value) return
+
+  confirm.require({
+    message:
+      'Regenerate AI metadata for this document? This will extract title, correspondent, date, type, summary, and auto-generate tags.',
+    header: 'Confirm Regenerate Metadata',
+    icon: 'pi pi-sparkles',
+    accept: async () => {
+      try {
+        await documentService.regenerateMetadata(document.value!.id)
+        toast.add({
+          severity: 'success',
+          summary: 'Success',
+          detail: 'Metadata extraction started',
+          life: 3000,
+        })
+        // Reload document after a delay
+        setTimeout(loadDocument, 2000)
+      } catch (error: any) {
+        toast.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: error.response?.data?.detail || 'Failed to regenerate metadata',
+          life: 3000,
+        })
+      }
+    },
+  })
+}
+
 const handleDelete = () => {
   if (!document.value) return
 
@@ -401,6 +432,14 @@ onMounted(() => {
             outlined
           />
           <Button
+            v-if="document.ocr_text"
+            label="Regenerate Metadata"
+            icon="pi pi-magic-wand"
+            @click="handleRegenerateMetadata"
+            severity="secondary"
+            outlined
+          />
+          <Button
             label="Download"
             icon="pi pi-download"
             @click="handleDownload"
@@ -482,6 +521,48 @@ onMounted(() => {
               <span v-if="document.tags.length === 0" class="text-gray-400 text-sm">
                 No tags
               </span>
+            </div>
+          </div>
+        </template>
+      </Card>
+
+      <!-- AI-Extracted Metadata Card -->
+      <Card
+        v-if="
+          document.extracted_title ||
+          document.extracted_correspondent ||
+          document.extracted_date ||
+          document.extracted_document_type ||
+          document.extracted_summary
+        "
+      >
+        <template #title>
+          <div class="flex items-center gap-2">
+            <i class="pi pi-sparkles text-purple-500"></i>
+            <span>AI-Extracted Metadata</span>
+          </div>
+        </template>
+        <template #content>
+          <div class="space-y-4">
+            <div v-if="document.extracted_title">
+              <p class="text-sm text-gray-500">Extracted Title</p>
+              <p class="font-medium">{{ document.extracted_title }}</p>
+            </div>
+            <div v-if="document.extracted_correspondent">
+              <p class="text-sm text-gray-500">Correspondent</p>
+              <p class="font-medium">{{ document.extracted_correspondent }}</p>
+            </div>
+            <div v-if="document.extracted_date">
+              <p class="text-sm text-gray-500">Document Date</p>
+              <p class="font-medium">{{ document.extracted_date }}</p>
+            </div>
+            <div v-if="document.extracted_document_type">
+              <p class="text-sm text-gray-500">Document Type</p>
+              <p class="font-medium capitalize">{{ document.extracted_document_type }}</p>
+            </div>
+            <div v-if="document.extracted_summary">
+              <p class="text-sm text-gray-500">Summary</p>
+              <p class="text-gray-700 leading-relaxed">{{ document.extracted_summary }}</p>
             </div>
           </div>
         </template>

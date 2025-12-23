@@ -246,6 +246,54 @@ def regenerate_embeddings(
         )
 
 
+@router.post(
+    "/{document_id}/regenerate-metadata",
+    response_model=dict,
+    summary="Regenerate LLM metadata",
+    description="Regenerate AI-extracted metadata for a document"
+)
+def regenerate_metadata(
+    document_id: UUID,
+    current_user: User = Depends(get_current_user),
+    doc_service: DocumentService = Depends(get_document_service)
+):
+    """Regenerate LLM-extracted metadata for a document."""
+    try:
+        # Verify document exists and user has access
+        document = doc_service.get_document(document_id=document_id, user_id=current_user.id)
+
+        # Check if document has OCR text
+        if not document.ocr_text:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Document has no extracted text. Run OCR first."
+            )
+
+        # Check if LLM is enabled
+        from app.config import settings
+        if not settings.LLM_ENABLED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="LLM metadata extraction is disabled in configuration."
+            )
+
+        # Trigger metadata extraction
+        from app.tasks.document_tasks import extract_metadata
+
+        task = extract_metadata.delay(str(document_id))
+
+        return {
+            "message": "Metadata extraction triggered",
+            "document_id": str(document_id),
+            "task_id": task.id
+        }
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+
+
 @router.patch(
     "/{document_id}",
     response_model=DocumentResponse,

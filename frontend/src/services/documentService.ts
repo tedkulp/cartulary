@@ -68,4 +68,8 @@ export const documentService = {
     link.parentNode?.removeChild(link)
     window.URL.revokeObjectURL(url)
   },
+
+  async regenerateMetadata(id: string): Promise<void> {
+    await api.post(`/api/v1/documents/${id}/regenerate-metadata`)
+  },
 }

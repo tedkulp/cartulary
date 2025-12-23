@@ -194,7 +194,8 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Metadata extraction (title, correspondent, date, type, summary)
 - [x] Auto-tagging from LLM suggestions
 - [x] Integration with document processing pipeline
-- [ ] Frontend UI for extracted metadata display
+- [x] Frontend UI for extracted metadata display
+- [x] Manual metadata regeneration button
 
 ### 🔲 Phase 5: Multi-User & Permissions
 - [ ] RBAC
