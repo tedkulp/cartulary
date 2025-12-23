@@ -3,6 +3,7 @@ import logging
 from uuid import UUID
 from typing import List
 
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -151,7 +152,6 @@ def generate_embeddings(self, document_id: str) -> dict:
     db: Session = SessionLocal()
     try:
         # Get document from database using raw SQL to avoid SQLAlchemy lazy-loading issues
-        from sqlalchemy import text as sql_text
         result = db.execute(
             sql_text("SELECT ocr_text FROM documents WHERE id = :doc_id"),
             {"doc_id": document_id}
