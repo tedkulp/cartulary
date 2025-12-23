@@ -189,9 +189,12 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Dimension validation on startup
 - [x] Provider switching support
 
-### 🔲 Phase 4: LLM Integration
-- [ ] Metadata extraction
-- [ ] Auto-tagging
+### ✅ Phase 4: LLM Integration
+- [x] LLM service (OpenAI, Gemini, Ollama support)
+- [x] Metadata extraction (title, correspondent, date, type, summary)
+- [x] Auto-tagging from LLM suggestions
+- [x] Integration with document processing pipeline
+- [ ] Frontend UI for extracted metadata display
 
 ### 🔲 Phase 5: Multi-User & Permissions
 - [ ] RBAC
@@ -237,5 +240,5 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 
 ---
 
-**Version**: 0.3.0 (Phase 3 - Semantic Search Complete)
+**Version**: 0.4.0 (Phase 4 - LLM Integration Complete)
 **Status**: In Development
