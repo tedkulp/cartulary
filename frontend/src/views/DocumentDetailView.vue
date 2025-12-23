@@ -11,10 +11,12 @@ import Dialog from 'primevue/dialog'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
+import AppHeader from '@/components/AppHeader.vue'
 import { documentService } from '@/services/documentService'
 import { tagService, type Tag } from '@/services/tagService'
 import type { Document } from '@/types/document'
 import api from '@/services/api'
+import DocumentShareDialog from '@/components/DocumentShareDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +34,9 @@ const descriptionEdit = ref('')
 const availableTags = ref<Tag[]>([])
 const selectedTags = ref<Tag[]>([])
 const showTagDialog = ref(false)
+
+// Sharing
+const showShareDialog = ref(false)
 
 // PDF Blob URL for authenticated viewing
 const pdfBlobUrl = ref<string>('')
@@ -335,8 +340,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="document-detail-view p-6 max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50">
+    <AppHeader />
     <ConfirmDialog />
+
+    <div class="document-detail-view p-6 max-w-7xl mx-auto">
 
     <div v-if="loading" class="text-center py-8">
       <i class="pi pi-spin pi-spinner text-4xl text-blue-500"></i>
@@ -416,6 +424,13 @@ onMounted(() => {
         </div>
 
         <div class="flex gap-2">
+          <Button
+            label="Share"
+            icon="pi pi-share-alt"
+            @click="showShareDialog = true"
+            severity="secondary"
+            outlined
+          />
           <Button
             label="Reprocess OCR"
             icon="pi pi-refresh"
@@ -634,5 +649,14 @@ onMounted(() => {
         <Button label="Save" @click="saveTags" />
       </template>
     </Dialog>
+
+    <!-- Document Share Dialog -->
+    <DocumentShareDialog
+      v-if="document"
+      v-model:visible="showShareDialog"
+      :document-id="document.id"
+      @shared="loadDocument"
+    />
+    </div>
   </div>
 </template>

@@ -148,20 +148,6 @@ class DocumentCustomField(Base):
     field = relationship("CustomField", back_populates="document_values")
 
 
-class ImportSource(Base):
-    """Import source configuration for automated document ingestion."""
-
-    __tablename__ = "import_sources"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_type = Column(String(50), nullable=False)  # directory_watch, imap, api_upload
-    name = Column(String(255), nullable=False)
-    config = Column(JSONB, nullable=False)  # Store path, IMAP settings, etc.
-    is_active = Column(Boolean, default=True, nullable=False)
-    last_check = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
-
 class AuditLog(Base):
     """Audit log for tracking document operations."""
 

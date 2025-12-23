@@ -46,6 +46,7 @@ services:
     ports:
       - "8000:8000"
     environment:
+      - RUN_MIGRATIONS=true
       - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -99,6 +100,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - backend
     networks:
       - trapper-network
 
@@ -119,6 +121,40 @@ services:
     depends_on:
       - postgres
       - redis
+      - backend
+    networks:
+      - trapper-network
+
+  directory_watcher:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trapper-directory-watcher
+    command: python run_directory_watcher.py
+    volumes:
+      - ./backend:/app
+      - ./document_storage:/data/documents
+      - ./import_watch:/data/import_watch
+    environment:
+      - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-false}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-384}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LLM_ENABLED=${LLM_ENABLED:-false}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      - postgres
+      - redis
+      - backend
     networks:
       - trapper-network
 
@@ -134,10 +170,12 @@ services:
       - /app/node_modules
     ports:
       - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000
+    # environment:
+    #   - VITE_API_URL=http://localhost:8000
     networks:
       - trapper-network
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

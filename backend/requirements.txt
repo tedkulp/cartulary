@@ -48,8 +48,8 @@ pgvector>=0.2.0
 # Email (will add in Phase 6)
 # imapclient>=2.3.0
 
-# File Watching (will add in Phase 6)
-# watchdog>=3.0.0
+# File Watching
+watchdog>=3.0.0
 
 # Testing
 pytest>=7.4.0

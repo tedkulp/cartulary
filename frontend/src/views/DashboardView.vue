@@ -3,11 +3,11 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import Button from 'primevue/button'
+import AppHeader from '@/components/AppHeader.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
-const appName = ref('Trapper')
 const backendStatus = ref('Checking...')
 
 onMounted(async () => {
@@ -20,38 +20,11 @@ onMounted(async () => {
     console.error('Backend connection error:', error)
   }
 })
-
-const handleLogout = () => {
-  authStore.logout()
-  router.push('/login')
-}
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-50">
-    <!-- Header -->
-    <header class="bg-white shadow">
-      <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
-        <h1 class="text-2xl font-bold text-gray-900">{{ appName }}</h1>
-        <div class="flex items-center gap-4">
-          <div class="text-sm text-gray-600">
-            Welcome, <span class="font-medium">{{ authStore.user?.email }}</span>
-          </div>
-          <Button
-            label="Documents"
-            icon="pi pi-file"
-            @click="router.push('/documents')"
-          />
-          <Button
-            label="Logout"
-            icon="pi pi-sign-out"
-            severity="secondary"
-            outlined
-            @click="handleLogout"
-          />
-        </div>
-      </div>
-    </header>
+    <AppHeader />
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
@@ -116,17 +89,30 @@ const handleLogout = () => {
               <span>Basic document upload</span>
             </li>
           </ul>
-          <div class="mt-4 flex gap-3 justify-center">
+          <div class="mt-4 flex gap-3 justify-center flex-wrap">
             <Button
               label="Go to Documents"
               icon="pi pi-file"
               @click="router.push('/documents')"
             />
             <Button
+              label="Shared with Me"
+              icon="pi pi-share-alt"
+              severity="secondary"
+              @click="router.push('/shared')"
+            />
+            <Button
               label="Manage Tags"
               icon="pi pi-tags"
               severity="secondary"
               @click="router.push('/tags')"
+            />
+            <Button
+              v-if="authStore.isSuperuser"
+              label="Admin Panel"
+              icon="pi pi-cog"
+              severity="warning"
+              @click="router.push('/admin')"
             />
           </div>
         </div>

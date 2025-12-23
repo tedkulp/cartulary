@@ -10,6 +10,7 @@ import Textarea from 'primevue/textarea'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
+import AppHeader from '@/components/AppHeader.vue'
 import { tagService, type Tag, type TagCreate } from '@/services/tagService'
 
 const confirm = useConfirm()
@@ -126,8 +127,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="tags-view p-6 max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50">
+    <AppHeader />
     <ConfirmDialog />
+
+    <div class="tags-view p-6 max-w-7xl mx-auto">
 
     <div class="mb-6 flex items-center justify-between">
       <div>
@@ -257,5 +261,6 @@ onMounted(() => {
         <Button label="Save" @click="saveTag" :disabled="!tagForm.name" />
       </template>
     </Dialog>
+    </div>
   </div>
 </template>

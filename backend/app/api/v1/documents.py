@@ -6,9 +6,18 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateError, NotFoundError
+from app.core.permissions import (
+    PermissionLevel,
+    require_document_access,
+    get_permission_service,
+    PermissionService,
+    SystemPermissions,
+    require_permission
+)
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
+from app.models.document import Document
 from app.schemas.document import DocumentResponse, DocumentUpdate
 from app.services.document_service import DocumentService
 
@@ -86,23 +95,31 @@ async def upload_document(
     "",
     response_model=List[DocumentResponse],
     summary="List documents",
-    description="Get a paginated list of user's documents"
+    description="Get a paginated list of accessible documents"
 )
 def list_documents(
     skip: int = 0,
     limit: int = 50,
     current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    permission_service: PermissionService = Depends(get_permission_service),
+    db: Session = Depends(get_db)
 ) -> List[DocumentResponse]:
-    """Get list of documents for the current user."""
+    """
+    Get list of documents accessible to the current user.
+
+    Includes:
+    - Documents owned by the user
+    - Public documents
+    - Documents shared with the user
+    """
     if limit > 100:
         limit = 100  # Max limit
 
-    return doc_service.list_documents(
-        user_id=current_user.id,
-        skip=skip,
-        limit=limit
-    )
+    # Use permission service to get accessible documents
+    query = permission_service.get_accessible_documents_query(current_user)
+    documents = query.offset(skip).limit(limit).all()
+
+    return documents
 
 
 @router.get(
@@ -113,20 +130,10 @@ def list_documents(
 )
 def get_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.READ))
 ) -> DocumentResponse:
-    """Get document by ID."""
-    try:
-        return doc_service.get_document(
-            document_id=document_id,
-            user_id=current_user.id
-        )
-    except NotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
-        )
+    """Get document by ID (requires read access)."""
+    return document
 
 
 @router.get(
@@ -136,25 +143,11 @@ def get_document(
 )
 async def download_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    document: Document = Depends(require_document_access(PermissionLevel.READ))
 ):
-    """Download a document file."""
+    """Download a document file (requires read access)."""
     from fastapi.responses import FileResponse
     from app.services.storage_service import StorageService
-    from app.models.document import Document
-
-    # Query document directly from database to get file_path
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.owner_id == current_user.id
-    ).first()
-
-    if not document:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found"
-        )
 
     # Get absolute file path
     storage = StorageService()
@@ -181,29 +174,19 @@ async def download_document(
 )
 def reprocess_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE))
 ):
-    """Reprocess a document (retry OCR)."""
-    try:
-        # Verify document exists and user has access
-        doc_service.get_document(document_id=document_id, user_id=current_user.id)
+    """Reprocess a document - retry OCR (requires write access)."""
+    # Trigger reprocessing
+    from app.tasks.document_tasks import reprocess_document as reprocess_task
 
-        # Trigger reprocessing
-        from app.tasks.document_tasks import reprocess_document as reprocess_task
+    task = reprocess_task.delay(str(document_id))
 
-        task = reprocess_task.delay(str(document_id))
-
-        return {
-            "message": "Document reprocessing triggered",
-            "document_id": str(document_id),
-            "task_id": task.id
-        }
-    except NotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
-        )
+    return {
+        "message": "Document reprocessing triggered",
+        "document_id": str(document_id),
+        "task_id": task.id
+    }
 
 
 @router.post(
@@ -214,36 +197,26 @@ def reprocess_document(
 )
 def regenerate_embeddings(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE))
 ):
-    """Regenerate embeddings for a document."""
-    try:
-        # Verify document exists and user has access
-        document = doc_service.get_document(document_id=document_id, user_id=current_user.id)
-
-        # Check if document has OCR text
-        if not document.ocr_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Document has no extracted text. Run OCR first."
-            )
-
-        # Trigger embedding generation
-        from app.tasks.document_tasks import generate_embeddings
-
-        task = generate_embeddings.delay(str(document_id))
-
-        return {
-            "message": "Embedding generation triggered",
-            "document_id": str(document_id),
-            "task_id": task.id
-        }
-    except NotFoundError as e:
+    """Regenerate embeddings for a document (requires write access)."""
+    # Check if document has OCR text
+    if not document.ocr_text:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document has no extracted text. Run OCR first."
         )
+
+    # Trigger embedding generation
+    from app.tasks.document_tasks import generate_embeddings
+
+    task = generate_embeddings.delay(str(document_id))
+
+    return {
+        "message": "Embedding generation triggered",
+        "document_id": str(document_id),
+        "task_id": task.id
+    }
 
 
 @router.post(
@@ -254,44 +227,34 @@ def regenerate_embeddings(
 )
 def regenerate_metadata(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE))
 ):
-    """Regenerate LLM-extracted metadata for a document."""
-    try:
-        # Verify document exists and user has access
-        document = doc_service.get_document(document_id=document_id, user_id=current_user.id)
-
-        # Check if document has OCR text
-        if not document.ocr_text:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Document has no extracted text. Run OCR first."
-            )
-
-        # Check if LLM is enabled
-        from app.config import settings
-        if not settings.LLM_ENABLED:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="LLM metadata extraction is disabled in configuration."
-            )
-
-        # Trigger metadata extraction
-        from app.tasks.document_tasks import extract_metadata
-
-        task = extract_metadata.delay(str(document_id))
-
-        return {
-            "message": "Metadata extraction triggered",
-            "document_id": str(document_id),
-            "task_id": task.id
-        }
-    except NotFoundError as e:
+    """Regenerate LLM-extracted metadata for a document (requires write access)."""
+    # Check if document has OCR text
+    if not document.ocr_text:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Document has no extracted text. Run OCR first."
         )
+
+    # Check if LLM is enabled
+    from app.config import settings
+    if not settings.LLM_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="LLM metadata extraction is disabled in configuration."
+        )
+
+    # Trigger metadata extraction
+    from app.tasks.document_tasks import extract_metadata
+
+    task = extract_metadata.delay(str(document_id))
+
+    return {
+        "message": "Metadata extraction triggered",
+        "document_id": str(document_id),
+        "task_id": task.id
+    }
 
 
 @router.patch(
@@ -303,21 +266,20 @@ def regenerate_metadata(
 def update_document(
     document_id: UUID,
     document_update: DocumentUpdate,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
+    db: Session = Depends(get_db)
 ) -> DocumentResponse:
-    """Update document metadata."""
-    try:
-        return doc_service.update_document(
-            document_id=document_id,
-            user_id=current_user.id,
-            document_update=document_update
-        )
-    except NotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
-        )
+    """Update document metadata (requires write access)."""
+    # Update fields
+    if document_update.title is not None:
+        document.title = document_update.title
+    if document_update.is_public is not None:
+        document.is_public = document_update.is_public
+
+    db.commit()
+    db.refresh(document)
+
+    return document
 
 
 @router.delete(
@@ -328,18 +290,26 @@ def update_document(
 )
 def delete_document(
     document_id: UUID,
-    current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    document: Document = Depends(require_document_access(PermissionLevel.ADMIN)),
+    db: Session = Depends(get_db)
 ):
-    """Delete a document."""
+    """Delete a document (requires admin access - typically owner only)."""
+    from app.services.storage_service import StorageService
+
+    # Delete file from storage
     try:
-        doc_service.delete_document(
-            document_id=document_id,
-            user_id=current_user.id
-        )
-        return None
-    except NotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=e.message
-        )
+        storage = StorageService()
+        file_path = storage.get_file_path(document.file_path)
+        if file_path.exists():
+            file_path.unlink()
+    except Exception as e:
+        # Log but don't fail the deletion
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to delete file {document.file_path}: {e}")
+
+    # Delete database record (cascades to embeddings and shares)
+    db.delete(document)
+    db.commit()
+
+    return None

@@ -6,8 +6,8 @@ from app.models.document import (
     DocumentCustomField,
     DocumentEmbedding,
     DocumentVersion,
-    ImportSource,
 )
+from app.models.import_source import ImportSource
 from app.models.sharing import DocumentShare
 from app.models.tag import Category, Tag
 from app.models.user import Permission, Role, User, UserGroup

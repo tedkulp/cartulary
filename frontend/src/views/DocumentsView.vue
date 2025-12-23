@@ -12,6 +12,7 @@ import Dropdown from 'primevue/dropdown'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
+import AppHeader from '@/components/AppHeader.vue'
 import DocumentUpload from '@/components/DocumentUpload.vue'
 import { documentService } from '@/services/documentService'
 import { searchService, type SearchMode } from '@/services/searchService'
@@ -131,8 +132,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="documents-view p-6 max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50">
+    <AppHeader />
     <ConfirmDialog />
+
+    <div class="documents-view p-6 max-w-7xl mx-auto">
 
     <div class="mb-6">
       <h1 class="text-3xl font-bold text-gray-900 mb-2">Documents</h1>
@@ -300,6 +304,7 @@ onMounted(() => {
           </template>
         </Card>
       </div>
+    </div>
     </div>
   </div>
 </template>

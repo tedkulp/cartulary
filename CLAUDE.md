@@ -647,9 +647,29 @@ npm install
 - sentence-transformers: https://www.sbert.net/
 - LangChain: https://python.langchain.com/
 
-## Implementation Plan Reference
+## Implementation Plan
 
-For detailed implementation phases, see: [.claude/plans/deep-sprouting-volcano.md](.claude/plans/deep-sprouting-volcano.md)
+This project follows the detailed implementation plan at [~/.claude/plans/deep-sprouting-volcano.md](~/.claude/plans/deep-sprouting-volcano.md)
+
+**Current Status**: Phase 5 - Multi-User & Permissions ✅ COMPLETE
+**Next Phase**: Phase 6 - Import Sources
+
+The plan outlines 8 phases:
+1. **Phase 1: Foundation** - Core infrastructure, auth, basic document upload
+2. **Phase 2: OCR & Full-Text Search** - PaddleOCR integration, PostgreSQL FTS
+3. **Phase 3: Semantic Search (RAG)** - Vector embeddings, pgvector, hybrid search
+4. **Phase 4: LLM Integration** - Metadata extraction, auto-tagging
+5. **Phase 5: Multi-User & Permissions** - RBAC, document sharing
+6. **Phase 6: Import Sources** - Directory watching, IMAP integration
+7. **Phase 7: OIDC & Polish** - Enterprise auth, UI improvements
+8. **Phase 8: Testing & Production** - Comprehensive testing, deployment
+
+Refer to the full plan for:
+- Detailed project structure and database schema
+- Complete technology stack and dependencies
+- Implementation steps for each phase
+- Key design decisions and rationale
+- Performance considerations and security guidelines
 
 ## Notes for Future Claude Sessions
 
@@ -676,5 +696,5 @@ When starting a new session, provide:
 
 ---
 
-Last Updated: 2025-12-21
-Project Version: 0.1.0 (Phase 1 - Planning)
+Last Updated: 2025-12-23
+Project Version: 0.5.0 (Phase 5 - Complete)
