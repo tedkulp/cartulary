@@ -88,8 +88,12 @@ def process_document(self, document_id: str) -> dict:
         if settings.EMBEDDING_ENABLED and doc.processing_status == "ocr_complete" and doc.ocr_text:
             logger.info(f"Triggering embedding generation for document {document_id}")
             generate_embeddings.delay(document_id)
-        elif not settings.EMBEDDING_ENABLED:
-            logger.info(f"Embedding generation disabled, skipping for document {document_id}")
+        elif settings.LLM_ENABLED and doc.processing_status == "ocr_complete" and doc.ocr_text:
+            # If embeddings disabled but LLM enabled, trigger LLM directly
+            logger.info(f"Embedding generation disabled, triggering LLM metadata extraction for document {document_id}")
+            extract_metadata.delay(document_id)
+        else:
+            logger.info(f"Both embedding and LLM disabled, document processing complete for {document_id}")
 
         return {
             "status": "success",
@@ -254,6 +258,13 @@ def generate_embeddings(self, document_id: str) -> dict:
             f"Generated {len(embeddings)} embeddings for document {document_id}"
         )
 
+        # Trigger LLM metadata extraction if enabled
+        if settings.LLM_ENABLED:
+            logger.info(f"Triggering LLM metadata extraction for document {document_id}")
+            extract_metadata.delay(document_id)
+        else:
+            logger.info(f"LLM metadata extraction disabled, skipping for document {document_id}")
+
         return {
             "status": "success",
             "document_id": document_id,
@@ -271,6 +282,191 @@ def generate_embeddings(self, document_id: str) -> dict:
             db.execute(
                 sql_text("UPDATE documents SET processing_status = 'failed', processing_error = :error WHERE id = :doc_id"),
                 {"error": f"Embedding generation failed: {str(e)}", "doc_id": document_id}
+            )
+            db.commit()
+        except Exception as db_error:
+            logger.error(f"Failed to update error status: {db_error}")
+
+        return {"status": "error", "document_id": document_id, "message": str(e)}
+
+    finally:
+        db.close()
+
+
+@celery_app.task(name="tasks.extract_metadata")
+def extract_metadata(document_id: str):
+    """
+    Extract metadata from document using LLM.
+
+    Args:
+        document_id: UUID of the document to process
+
+    Returns:
+        Dictionary with extraction results
+    """
+    from app.services.llm_service import LLMService
+
+    logger.info(f"Starting metadata extraction for document {document_id}")
+
+    # Check if LLM is enabled
+    if not settings.LLM_ENABLED:
+        logger.info("LLM is disabled, skipping metadata extraction")
+        return {"status": "skipped", "reason": "LLM disabled"}
+
+    db = SessionLocal()
+
+    try:
+        # Get document from database using raw SQL to avoid ORM issues
+        result = db.execute(
+            sql_text("SELECT ocr_text, original_filename, title FROM documents WHERE id = :doc_id"),
+            {"doc_id": document_id}
+        )
+        row = result.fetchone()
+
+        if not row:
+            logger.error(f"Document {document_id} not found")
+            return {"status": "error", "message": "Document not found"}
+
+        ocr_text = str(row[0]) if row[0] else ""
+        original_filename = str(row[1])
+        current_title = str(row[2])
+
+        if not ocr_text:
+            logger.warning(f"No OCR text available for document {document_id}")
+            return {"status": "skipped", "reason": "No text content"}
+
+        # Initialize LLM service
+        api_key = settings.OPENAI_API_KEY if settings.LLM_PROVIDER == "openai" else settings.GEMINI_API_KEY
+        llm_service = LLMService(
+            provider=settings.LLM_PROVIDER,
+            model_name=settings.LLM_MODEL,
+            api_key=api_key,
+            base_url=settings.LLM_BASE_URL,
+        )
+
+        # Extract metadata
+        logger.info(f"Calling LLM for metadata extraction...")
+        metadata = llm_service.extract_metadata(ocr_text, original_filename)
+        logger.info(f"Extracted metadata: {metadata}")
+
+        # Update document with extracted metadata using raw SQL
+        updates = []
+        params = {"doc_id": document_id}
+
+        # Only update title if current title is the filename
+        if current_title == original_filename and metadata.get("title") != "Unknown":
+            updates.append("extracted_title = :extracted_title")
+            params["extracted_title"] = metadata["title"]
+
+        if metadata.get("correspondent") and metadata["correspondent"] != "Unknown":
+            updates.append("extracted_correspondent = :correspondent")
+            params["correspondent"] = metadata["correspondent"]
+
+        if metadata.get("document_date"):
+            updates.append("extracted_date = :doc_date")
+            params["doc_date"] = metadata["document_date"]
+
+        if metadata.get("document_type") and metadata["document_type"] != "Unknown":
+            updates.append("extracted_document_type = :doc_type")
+            params["doc_type"] = metadata["document_type"]
+
+        if metadata.get("summary"):
+            updates.append("extracted_summary = :summary")
+            params["summary"] = metadata["summary"]
+
+        # Update processing status
+        updates.append("processing_status = 'llm_complete'")
+
+        if updates:
+            update_sql = f"UPDATE documents SET {', '.join(updates)} WHERE id = :doc_id"
+            db.execute(sql_text(update_sql), params)
+            db.commit()
+            logger.info(f"Updated document {document_id} with extracted metadata")
+
+        # Handle suggested tags
+        suggested_tags = metadata.get("suggested_tags", [])
+        if suggested_tags:
+            logger.info(f"Processing {len(suggested_tags)} suggested tags")
+
+            # Get document owner_id
+            owner_result = db.execute(
+                sql_text("SELECT owner_id FROM documents WHERE id = :doc_id"),
+                {"doc_id": document_id}
+            )
+            owner_row = owner_result.fetchone()
+            owner_id = str(owner_row[0]) if owner_row else None
+
+            if owner_id:
+                for tag_name in suggested_tags:
+                    # Clean tag name
+                    tag_name = tag_name.strip().lower()[:50]
+                    if not tag_name:
+                        continue
+
+                    try:
+                        # Check if tag exists for this user
+                        tag_result = db.execute(
+                            sql_text("SELECT id FROM tags WHERE name = :name AND user_id = :user_id"),
+                            {"name": tag_name, "user_id": owner_id}
+                        )
+                        tag_row = tag_result.fetchone()
+
+                        if tag_row:
+                            tag_id = str(tag_row[0])
+                        else:
+                            # Create new tag
+                            import uuid
+                            tag_id = str(uuid.uuid4())
+                            db.execute(
+                                sql_text(
+                                    "INSERT INTO tags (id, name, user_id) VALUES (:id, :name, :user_id)"
+                                ),
+                                {"id": tag_id, "name": tag_name, "user_id": owner_id}
+                            )
+                            db.commit()
+                            logger.info(f"Created new tag: {tag_name}")
+
+                        # Check if document-tag association exists
+                        assoc_result = db.execute(
+                            sql_text(
+                                "SELECT 1 FROM document_tags WHERE document_id = :doc_id AND tag_id = :tag_id"
+                            ),
+                            {"doc_id": document_id, "tag_id": tag_id}
+                        )
+
+                        if not assoc_result.fetchone():
+                            # Add tag to document
+                            db.execute(
+                                sql_text(
+                                    "INSERT INTO document_tags (document_id, tag_id) VALUES (:doc_id, :tag_id)"
+                                ),
+                                {"doc_id": document_id, "tag_id": tag_id}
+                            )
+                            db.commit()
+                            logger.info(f"Added tag '{tag_name}' to document")
+
+                    except Exception as tag_error:
+                        logger.error(f"Error processing tag '{tag_name}': {tag_error}")
+                        db.rollback()
+                        continue
+
+        return {
+            "status": "success",
+            "document_id": document_id,
+            "metadata": metadata,
+            "tags_added": len(suggested_tags),
+        }
+
+    except Exception as e:
+        logger.error(
+            f"Error extracting metadata for document {document_id}: {e}", exc_info=True
+        )
+
+        # Update document with error status
+        try:
+            db.execute(
+                sql_text("UPDATE documents SET processing_error = :error WHERE id = :doc_id"),
+                {"error": f"Metadata extraction failed: {str(e)}", "doc_id": document_id}
             )
             db.commit()
         except Exception as db_error:

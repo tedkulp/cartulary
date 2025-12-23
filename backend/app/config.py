@@ -86,10 +86,10 @@ class Settings(BaseSettings):
 
     # LLM (Phase 4 - Optional)
     LLM_ENABLED: bool = False
-    LLM_PROVIDER: Optional[str] = None  # openai, gemini, ollama
-    LLM_MODEL: Optional[str] = None
-    LLM_BASE_URL: Optional[str] = None  # For Ollama
-    LLM_API_KEY: Optional[str] = None
+    LLM_PROVIDER: str = "openai"  # openai, gemini, ollama
+    LLM_MODEL: str = "gpt-4o-mini"  # gpt-4o-mini, gemini-pro, llama2
+    LLM_BASE_URL: Optional[str] = None  # For Ollama (default: http://localhost:11434)
+    GEMINI_API_KEY: Optional[str] = None  # Required if LLM_PROVIDER=gemini
 
     # OIDC (Phase 7 - Optional)
     OIDC_ENABLED: bool = False

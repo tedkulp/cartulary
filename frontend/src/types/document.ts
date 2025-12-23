@@ -21,10 +21,12 @@ export interface Document {
   updated_at: string
   uploaded_by?: string
   tags: Tag[]
+  // LLM-extracted metadata
   extracted_title?: string
+  extracted_correspondent?: string
   extracted_date?: string
-  extracted_sender?: string
-  extracted_recipient?: string
+  extracted_document_type?: string
+  extracted_summary?: string
 }
 
 export interface DocumentUploadData {

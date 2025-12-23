@@ -181,10 +181,13 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Processing status display
 - [x] Reprocess endpoint for failed documents
 
-### 🔲 Phase 3: Semantic Search (Current)
-- [ ] Embedding generation
-- [ ] Vector search
-- [ ] Hybrid search
+### ✅ Phase 3: Semantic Search
+- [x] Embedding generation (OpenAI + local support)
+- [x] Vector search (pgvector with cosine similarity)
+- [x] Hybrid search (RRF combining FTS + semantic)
+- [x] Search mode UI (Fulltext/Semantic/Hybrid)
+- [x] Dimension validation on startup
+- [x] Provider switching support
 
 ### 🔲 Phase 4: LLM Integration
 - [ ] Metadata extraction
@@ -234,5 +237,5 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 
 ---
 
-**Version**: 0.1.0 (Phase 1 - Scaffolding)
+**Version**: 0.3.0 (Phase 3 - Semantic Search Complete)
 **Status**: In Development
