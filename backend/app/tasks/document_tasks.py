@@ -405,10 +405,10 @@ def extract_metadata(document_id: str):
                         continue
 
                     try:
-                        # Check if tag exists for this user
+                        # Check if tag exists (tags are global, not per-user)
                         tag_result = db.execute(
-                            sql_text("SELECT id FROM tags WHERE name = :name AND user_id = :user_id"),
-                            {"name": tag_name, "user_id": owner_id}
+                            sql_text("SELECT id FROM tags WHERE name = :name"),
+                            {"name": tag_name}
                         )
                         tag_row = tag_result.fetchone()
 
@@ -420,9 +420,9 @@ def extract_metadata(document_id: str):
                             tag_id = str(uuid.uuid4())
                             db.execute(
                                 sql_text(
-                                    "INSERT INTO tags (id, name, user_id) VALUES (:id, :name, :user_id)"
+                                    "INSERT INTO tags (id, name, created_by, created_at) VALUES (:id, :name, :created_by, NOW())"
                                 ),
-                                {"id": tag_id, "name": tag_name, "user_id": owner_id}
+                                {"id": tag_id, "name": tag_name, "created_by": owner_id}
                             )
                             db.commit()
                             logger.info(f"Created new tag: {tag_name}")
