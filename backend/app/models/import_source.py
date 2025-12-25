@@ -39,11 +39,11 @@ class ImportSource(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_type: Mapped[ImportSourceType] = mapped_column(
-        SQLEnum(ImportSourceType),
+        SQLEnum(ImportSourceType, values_callable=lambda x: [e.value for e in x]),
         nullable=False
     )
     status: Mapped[ImportSourceStatus] = mapped_column(
-        SQLEnum(ImportSourceStatus),
+        SQLEnum(ImportSourceStatus, values_callable=lambda x: [e.value for e in x]),
         default=ImportSourceStatus.ACTIVE,
         nullable=False
     )

@@ -8,7 +8,7 @@ import Card from 'primevue/card'
 import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -182,7 +182,7 @@ onMounted(() => {
                   :loading="loading"
                   size="small"
                 />
-                <Dropdown
+                <Select
                   v-model="searchMode"
                   :options="searchModes"
                   optionLabel="label"

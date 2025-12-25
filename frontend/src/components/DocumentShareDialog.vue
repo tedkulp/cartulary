@@ -3,8 +3,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
-import Dropdown from 'primevue/dropdown'
-import Calendar from 'primevue/calendar'
+import Select from 'primevue/select'
+import DatePicker from 'primevue/datepicker'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Tag from 'primevue/tag'
@@ -172,7 +172,7 @@ onMounted(() => {
         <div class="grid grid-cols-1 gap-4">
           <div>
             <label for="user" class="block mb-2">User</label>
-            <Dropdown
+            <Select
               id="user"
               v-model="selectedUser"
               :options="users"
@@ -191,12 +191,12 @@ onMounted(() => {
                   <div class="text-sm text-gray-500">{{ slotProps.option.full_name }}</div>
                 </div>
               </template>
-            </Dropdown>
+            </Select>
           </div>
 
           <div>
             <label for="permission" class="block mb-2">Permission Level</label>
-            <Dropdown
+            <Select
               id="permission"
               v-model="selectedPermission"
               :options="permissionOptions"
@@ -209,7 +209,7 @@ onMounted(() => {
 
           <div>
             <label for="expiration" class="block mb-2">Expiration (Optional)</label>
-            <Calendar
+            <DatePicker
               id="expiration"
               v-model="expirationDate"
               :showIcon="true"

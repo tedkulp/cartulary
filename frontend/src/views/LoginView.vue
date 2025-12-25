@@ -1,17 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { authService } from '@/services/authService'
 import InputText from 'primevue/inputtext'
 import Password from 'primevue/password'
 import Button from 'primevue/button'
 import Message from 'primevue/message'
+import Divider from 'primevue/divider'
 
 const router = useRouter()
 const authStore = useAuthStore()
 
 const email = ref('')
 const password = ref('')
+const oidcEnabled = ref(false)
+const oidcLoading = ref(true)
 
 const handleLogin = async () => {
   authStore.clearError()
@@ -22,9 +26,29 @@ const handleLogin = async () => {
   })
 
   if (success) {
-    router.push('/')
+    router.push('/documents')
   }
 }
+
+const handleOIDCLogin = async () => {
+  try {
+    await authService.initiateOIDCLogin()
+  } catch (err: any) {
+    console.error('OIDC login error:', err)
+    authStore.error = err.response?.data?.detail || 'Failed to initiate OIDC login'
+  }
+}
+
+onMounted(async () => {
+  try {
+    const config = await authService.getOIDCConfig()
+    oidcEnabled.value = config.enabled
+  } catch (error) {
+    console.error('Failed to fetch OIDC config:', error)
+  } finally {
+    oidcLoading.value = false
+  }
+})
 </script>
 
 <template>
@@ -82,14 +106,28 @@ const handleLogin = async () => {
           :loading="authStore.loading"
           :disabled="authStore.loading"
         />
-
-        <div class="text-center text-sm text-gray-600">
-          Don't have an account?
-          <RouterLink to="/register" class="text-blue-600 hover:text-blue-700 font-medium">
-            Register here
-          </RouterLink>
-        </div>
       </form>
+
+      <div v-if="!oidcLoading && oidcEnabled">
+        <Divider align="center">
+          <span class="text-sm text-gray-500">OR</span>
+        </Divider>
+
+        <Button
+          type="button"
+          label="Sign in with SSO"
+          icon="pi pi-sign-in"
+          class="w-full p-button-outlined"
+          @click="handleOIDCLogin"
+        />
+      </div>
+
+      <div class="text-center text-sm text-gray-600 mt-6">
+        Don't have an account?
+        <RouterLink to="/register" class="text-blue-600 hover:text-blue-700 font-medium">
+          Register here
+        </RouterLink>
+      </div>
     </div>
   </div>
 </template>

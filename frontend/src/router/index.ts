@@ -16,10 +16,14 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false },
   },
   {
+    path: '/auth/callback',
+    name: 'oidc-callback',
+    component: () => import('@/views/OIDCCallbackView.vue'),
+    meta: { requiresAuth: false },
+  },
+  {
     path: '/',
-    name: 'home',
-    component: () => import('@/views/DashboardView.vue'),
-    meta: { requiresAuth: true },
+    redirect: '/documents',
   },
   {
     path: '/documents',
@@ -65,7 +69,7 @@ const router = createRouter({
 })
 
 // Navigation guard for authentication
-router.beforeEach(async (to, from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
   // Initialize auth store if not already done
@@ -80,11 +84,11 @@ router.beforeEach(async (to, from, next) => {
     // Redirect to login if route requires auth and user is not authenticated
     next({ name: 'login', query: { redirect: to.fullPath } })
   } else if (requiresAdmin && !authStore.isSuperuser) {
-    // Redirect to home if route requires admin and user is not a superuser
-    next({ name: 'home' })
+    // Redirect to documents if route requires admin and user is not a superuser
+    next({ name: 'documents' })
   } else if (!requiresAuth && authStore.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
-    // Redirect to home if user is authenticated and trying to access login/register
-    next({ name: 'home' })
+    // Redirect to documents if user is authenticated and trying to access login/register
+    next({ name: 'documents' })
   } else {
     next()
   }

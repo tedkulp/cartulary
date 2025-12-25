@@ -7,7 +7,7 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
-import Dropdown from 'primevue/dropdown'
+import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import Tag from 'primevue/tag'
 import { importSourceService } from '@/services/importSourceService'
@@ -303,7 +303,7 @@ onMounted(() => {
           <label for="source_type" class="block text-sm font-medium text-gray-700 mb-2">
             Source Type
           </label>
-          <Dropdown
+          <Select
             id="source_type"
             v-model="formData.source_type"
             :options="sourceTypeOptions"
@@ -317,7 +317,7 @@ onMounted(() => {
         <!-- Status -->
         <div>
           <label for="status" class="block text-sm font-medium text-gray-700 mb-2">Status</label>
-          <Dropdown
+          <Select
             id="status"
             v-model="formData.status"
             :options="statusOptions"

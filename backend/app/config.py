@@ -93,9 +93,27 @@ class Settings(BaseSettings):
 
     # OIDC (Phase 7 - Optional)
     OIDC_ENABLED: bool = False
-    OIDC_DISCOVERY_URL: Optional[str] = None
+    OIDC_DISCOVERY_URL: Optional[str] = None  # e.g., https://auth.example.com/.well-known/openid-configuration
     OIDC_CLIENT_ID: Optional[str] = None
     OIDC_CLIENT_SECRET: Optional[str] = None
+    OIDC_REDIRECT_URI: str = "http://localhost:5173/auth/callback"  # Frontend callback URL
+    OIDC_SCOPES: List[str] = ["openid", "profile", "email"]
+    OIDC_AUTO_PROVISION_USERS: bool = True  # Auto-create users on first OIDC login
+    OIDC_DEFAULT_ROLE: str = "user"  # Default role for auto-provisioned users
+    OIDC_CLAIM_EMAIL: str = "email"  # OIDC claim for email
+    OIDC_CLAIM_NAME: str = "name"  # OIDC claim for full name
+    OIDC_CLAIM_GROUPS: Optional[str] = None  # Optional OIDC claim for groups/roles
+
+    @field_validator("OIDC_SCOPES", mode="before")
+    @classmethod
+    def parse_oidc_scopes(cls, v: Any) -> List[str]:
+        """Parse OIDC scopes from JSON string or list."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return [i.strip() for i in v.split(",") if i.strip()]
+        return v or ["openid", "profile", "email"]
 
     # Import Sources (Phase 6)
     WATCH_DIRECTORIES: List[str] = []

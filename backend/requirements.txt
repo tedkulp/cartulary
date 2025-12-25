@@ -22,6 +22,8 @@ redis>=5.0.0
 python-jose[cryptography]>=3.3.0
 bcrypt>=4.0.0
 authlib>=1.2.0
+httpx>=0.25.0  # For OIDC provider communication
+itsdangerous>=2.1.0  # For secure session handling
 
 # Storage
 aiofiles>=23.0.0
@@ -55,4 +57,3 @@ watchdog>=3.0.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
-httpx>=0.25.0

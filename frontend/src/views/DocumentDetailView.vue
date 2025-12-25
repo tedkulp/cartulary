@@ -588,7 +588,7 @@ onMounted(() => {
         <template #title>Document Preview</template>
         <template #content>
           <iframe
-            :src="pdfBlobUrl"
+            :src="pdfBlobUrl + '#view=FitH'"
             class="w-full h-[600px] border rounded"
             title="PDF Preview"
           ></iframe>

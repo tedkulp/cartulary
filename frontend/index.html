@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Trapper - Document Management</title>
+    <script>
+      // Suppress harmless PDF.js blob URL warning
+      const originalWarn = console.warn;
+      console.warn = function(...args) {
+        const message = typeof args[0] === 'string' ? args[0] : String(args[0] || '');
+        if (message.includes('Invalid absolute docBaseUrl')) {
+          return;
+        }
+        originalWarn.apply(console, args);
+      };
+    </script>
   </head>
   <body>
     <div id="app"></div>

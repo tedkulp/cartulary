@@ -425,9 +425,20 @@ LLM_BASE_URL=http://localhost:11434
 # Auth
 SECRET_KEY=your-secret-key-change-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# OIDC (Optional)
+# OIDC (Optional - Phase 7)
 OIDC_ENABLED=false
+OIDC_DISCOVERY_URL=https://auth.example.com/.well-known/openid-configuration
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_REDIRECT_URI=http://localhost:5173/auth/callback
+OIDC_SCOPES=["openid","profile","email"]
+OIDC_AUTO_PROVISION_USERS=true
+OIDC_DEFAULT_ROLE=user
+OIDC_CLAIM_EMAIL=email
+OIDC_CLAIM_NAME=name
+OIDC_CLAIM_GROUPS=groups  # Optional
 ```
 
 **Frontend (.env)**
@@ -651,8 +662,8 @@ npm install
 
 This project follows the detailed implementation plan at [~/.claude/plans/deep-sprouting-volcano.md](~/.claude/plans/deep-sprouting-volcano.md)
 
-**Current Status**: Phase 5 - Multi-User & Permissions ✅ COMPLETE
-**Next Phase**: Phase 6 - Import Sources
+**Current Status**: Phase 7 - OIDC & Polish 🚧 IN PROGRESS (OIDC Complete)
+**Next Phase**: Phase 7 (continued) - UI Polish & Admin Features
 
 The plan outlines 8 phases:
 1. **Phase 1: Foundation** - Core infrastructure, auth, basic document upload
@@ -686,6 +697,7 @@ When starting a new session, provide:
 - **Search**: Hybrid approach combining FTS and semantic search with RRF
 - **Storage**: Support both local filesystem and S3-compatible storage
 - **LLM**: All LLM features are optional and configurable
+- **OIDC**: Enterprise SSO support with auto-provisioning, works alongside JWT auth
 
 ### Areas Requiring Special Attention
 - **Vector embeddings**: Dimension must match model (384 for local, 1536 for OpenAI)
@@ -696,5 +708,5 @@ When starting a new session, provide:
 
 ---
 
-Last Updated: 2025-12-23
-Project Version: 0.5.0 (Phase 5 - Complete)
+Last Updated: 2025-12-25
+Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete)

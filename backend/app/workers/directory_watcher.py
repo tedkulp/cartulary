@@ -12,7 +12,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.database import SessionLocal
 from app.models.import_source import ImportSource, ImportSourceType, ImportSourceStatus
 from app.models.document import Document
 from app.tasks.document_tasks import process_document
