@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useTheme } from '@/composables/useTheme'
 import { useGlobalShortcuts } from '@/composables/useKeyboardShortcuts'
@@ -8,12 +8,19 @@ import Button from 'primevue/button'
 import KeyboardShortcutsDialog from './KeyboardShortcutsDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const { isDark, toggleTheme } = useTheme()
 const showShortcuts = ref(false)
 
 // Enable global keyboard shortcuts
 useGlobalShortcuts()
+
+// Check which page is currently active
+const isDocumentsPage = computed(() => route.path === '/' || route.path.startsWith('/documents'))
+const isSharedPage = computed(() => route.path.startsWith('/shared'))
+const isAdminPage = computed(() => route.path.startsWith('/admin'))
+const isSettingsPage = computed(() => route.path.startsWith('/settings'))
 
 const handleLogout = () => {
   authStore.logout()
@@ -36,14 +43,16 @@ const handleLogout = () => {
             label="Documents"
             icon="pi pi-file"
             @click="router.push('/documents')"
+            :severity="isDocumentsPage ? undefined : 'secondary'"
+            :outlined="!isDocumentsPage"
             v-tooltip.bottom="'Go to Documents (Ctrl+D)'"
           />
           <Button
             label="Shared"
             icon="pi pi-share-alt"
             @click="router.push('/shared')"
-            severity="secondary"
-            outlined
+            :severity="isSharedPage ? undefined : 'secondary'"
+            :outlined="!isSharedPage"
             v-tooltip.bottom="'View shared documents'"
           />
           <Button
@@ -51,16 +60,16 @@ const handleLogout = () => {
             label="Admin"
             icon="pi pi-users"
             @click="router.push('/admin')"
-            severity="secondary"
-            outlined
+            :severity="isAdminPage ? undefined : 'secondary'"
+            :outlined="!isAdminPage"
             v-tooltip.bottom="'Administration panel'"
           />
           <Button
             label="Settings"
             icon="pi pi-cog"
             @click="router.push('/settings')"
-            severity="secondary"
-            outlined
+            :severity="isSettingsPage ? undefined : 'secondary'"
+            :outlined="!isSettingsPage"
             v-tooltip.bottom="'Settings (Ctrl+S)'"
           />
           <Button

@@ -3,7 +3,10 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
 import { useConfirm } from 'primevue/useconfirm'
-import TabView from 'primevue/tabview'
+import Tabs from 'primevue/tabs'
+import TabList from 'primevue/tablist'
+import Tab from 'primevue/tab'
+import TabPanels from 'primevue/tabpanels'
 import TabPanel from 'primevue/tabpanel'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -342,117 +345,127 @@ onMounted(() => {
           </Card>
         </div>
 
-        <TabView>
-      <!-- Users Tab -->
-      <TabPanel header="Users">
-        <div class="mb-4">
-          <Button label="Create User" icon="pi pi-plus" @click="openUserDialog" />
-        </div>
+        <Tabs value="0">
+          <TabList>
+            <Tab value="0">Users</Tab>
+            <Tab value="1">Roles</Tab>
+            <Tab value="2">Permissions</Tab>
+          </TabList>
 
-        <EmptyState
-          v-if="users.length === 0 && !loading"
-          icon="pi pi-users"
-          title="No users yet"
-          description="Create your first user to get started."
-          action-label="Create User"
-          action-icon="pi pi-plus"
-          @action="openUserDialog"
-        />
-
-        <DataTable v-else :value="users" :loading="loading" stripedRows>
-          <Column field="email" header="Email" sortable></Column>
-          <Column field="full_name" header="Full Name" sortable></Column>
-          <Column header="Roles">
-            <template #body="slotProps">
-              <div class="flex flex-wrap gap-1">
-                <Tag
-                  v-for="role in slotProps.data.roles"
-                  :key="role.id"
-                  :value="role.name"
-                  severity="info"
-                />
-                <span v-if="!slotProps.data.roles || slotProps.data.roles.length === 0" class="text-muted-color text-sm">
-                  No roles
-                </span>
+          <TabPanels>
+            <!-- Users Tab -->
+            <TabPanel value="0">
+              <div class="mb-4 mt-4">
+                <Button label="Create User" icon="pi pi-plus" @click="openUserDialog" />
               </div>
-            </template>
-          </Column>
-          <Column field="is_active" header="Active" sortable>
-            <template #body="slotProps">
-              <i :class="slotProps.data.is_active ? 'pi pi-check text-green-500' : 'pi pi-times text-red-500'"></i>
-            </template>
-          </Column>
-          <Column field="is_superuser" header="Superuser" sortable>
-            <template #body="slotProps">
-              <i :class="slotProps.data.is_superuser ? 'pi pi-check text-green-500' : 'pi pi-times text-red-500'"></i>
-            </template>
-          </Column>
-          <Column header="Actions">
-            <template #body="slotProps">
-              <Button
+
+              <EmptyState
+                v-if="users.length === 0 && !loading"
                 icon="pi pi-users"
-                class="p-button-sm p-button-text"
-                v-tooltip="'Assign Roles'"
-                @click="openAssignRoleDialog(slotProps.data)"
+                title="No users yet"
+                description="Create your first user to get started."
+                action-label="Create User"
+                action-icon="pi pi-plus"
+                @action="openUserDialog"
               />
-              <Button
-                icon="pi pi-trash"
-                class="p-button-sm p-button-text p-button-danger"
-                v-tooltip="'Delete'"
-                @click="deleteUser(slotProps.data)"
+
+              <DataTable v-else :value="users" :loading="loading" stripedRows>
+                <Column field="email" header="Email" sortable></Column>
+                <Column field="full_name" header="Full Name" sortable></Column>
+                <Column header="Roles">
+                  <template #body="slotProps">
+                    <div class="flex flex-wrap gap-1">
+                      <Tag
+                        v-for="role in slotProps.data.roles"
+                        :key="role.id"
+                        :value="role.name"
+                        severity="info"
+                      />
+                      <span v-if="!slotProps.data.roles || slotProps.data.roles.length === 0" class="text-muted-color text-sm">
+                        No roles
+                      </span>
+                    </div>
+                  </template>
+                </Column>
+                <Column field="is_active" header="Active" sortable>
+                  <template #body="slotProps">
+                    <i :class="slotProps.data.is_active ? 'pi pi-check text-green-500' : 'pi pi-times text-red-500'"></i>
+                  </template>
+                </Column>
+                <Column field="is_superuser" header="Superuser" sortable>
+                  <template #body="slotProps">
+                    <i :class="slotProps.data.is_superuser ? 'pi pi-check text-green-500' : 'pi pi-times text-red-500'"></i>
+                  </template>
+                </Column>
+                <Column header="Actions">
+                  <template #body="slotProps">
+                    <Button
+                      icon="pi pi-users"
+                      class="p-button-sm p-button-text"
+                      v-tooltip="'Assign Roles'"
+                      @click="openAssignRoleDialog(slotProps.data)"
+                    />
+                    <Button
+                      icon="pi pi-trash"
+                      class="p-button-sm p-button-text p-button-danger"
+                      v-tooltip="'Delete'"
+                      @click="deleteUser(slotProps.data)"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </TabPanel>
+
+            <!-- Roles Tab -->
+            <TabPanel value="1">
+              <div class="mb-4 mt-4">
+                <Button label="Create Role" icon="pi pi-plus" @click="openRoleDialog" />
+              </div>
+
+              <EmptyState
+                v-if="roles.length === 0 && !loading"
+                icon="pi pi-tag"
+                title="No roles yet"
+                description="Create your first role to organize permissions."
+                action-label="Create Role"
+                action-icon="pi pi-plus"
+                @action="openRoleDialog"
               />
-            </template>
-          </Column>
-        </DataTable>
-      </TabPanel>
 
-      <!-- Roles Tab -->
-      <TabPanel header="Roles">
-        <div class="mb-4">
-          <Button label="Create Role" icon="pi pi-plus" @click="openRoleDialog" />
-        </div>
+              <DataTable v-else :value="roles" :loading="loading" stripedRows>
+                <Column field="name" header="Name" sortable></Column>
+                <Column field="description" header="Description"></Column>
+                <Column header="Actions">
+                  <template #body="slotProps">
+                    <Button
+                      icon="pi pi-trash"
+                      class="p-button-sm p-button-text p-button-danger"
+                      v-tooltip="'Delete'"
+                      @click="deleteRole(slotProps.data)"
+                    />
+                  </template>
+                </Column>
+              </DataTable>
+            </TabPanel>
 
-        <EmptyState
-          v-if="roles.length === 0 && !loading"
-          icon="pi pi-tag"
-          title="No roles yet"
-          description="Create your first role to organize permissions."
-          action-label="Create Role"
-          action-icon="pi pi-plus"
-          @action="openRoleDialog"
-        />
+            <!-- Permissions Tab -->
+            <TabPanel value="2">
+              <div class="mt-4">
+                <EmptyState
+                  v-if="permissions.length === 0 && !loading"
+                  icon="pi pi-lock"
+                  title="No permissions"
+                  description="Permissions are system-defined and cannot be created manually."
+                />
 
-        <DataTable v-else :value="roles" :loading="loading" stripedRows>
-          <Column field="name" header="Name" sortable></Column>
-          <Column field="description" header="Description"></Column>
-          <Column header="Actions">
-            <template #body="slotProps">
-              <Button
-                icon="pi pi-trash"
-                class="p-button-sm p-button-text p-button-danger"
-                v-tooltip="'Delete'"
-                @click="deleteRole(slotProps.data)"
-              />
-            </template>
-          </Column>
-        </DataTable>
-      </TabPanel>
-
-      <!-- Permissions Tab -->
-      <TabPanel header="Permissions">
-        <EmptyState
-          v-if="permissions.length === 0 && !loading"
-          icon="pi pi-lock"
-          title="No permissions"
-          description="Permissions are system-defined and cannot be created manually."
-        />
-
-        <DataTable v-else :value="permissions" :loading="loading" stripedRows>
-          <Column field="name" header="Name" sortable></Column>
-          <Column field="description" header="Description"></Column>
-        </DataTable>
-      </TabPanel>
-    </TabView>
+                <DataTable v-else :value="permissions" :loading="loading" stripedRows>
+                  <Column field="name" header="Name" sortable></Column>
+                  <Column field="description" header="Description"></Column>
+                </DataTable>
+              </div>
+            </TabPanel>
+          </TabPanels>
+        </Tabs>
       </div>
 
     <!-- Create User Dialog -->

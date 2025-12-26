@@ -207,115 +207,113 @@ onMounted(() => {
         </div>
 
         <!-- Import Sources Section -->
-        <div class="shadow rounded-lg p-6 mb-6">
-          <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold">Import Sources</h3>
-            <Button label="Add Import Source" icon="pi pi-plus" @click="openCreateDialog" />
-          </div>
-
-          <!-- Initial Loading State -->
-          <LoadingSpinner
-            v-if="initialLoading"
-            message="Loading import sources..."
-          />
-
-          <!-- Error State -->
-          <EmptyState
-            v-else-if="error"
-            icon="pi pi-exclamation-circle"
-            title="Failed to load import sources"
-            :description="error"
-            action-label="Try Again"
-            action-icon="pi pi-refresh"
-            @action="loadImportSources"
-          />
-
-          <!-- Empty State -->
-          <EmptyState
-            v-else-if="!hasImportSources && !loading"
-            icon="pi pi-folder-open"
-            title="No import sources configured"
-            description="Add your first import source to automatically import documents from directories or email."
-            action-label="Add Import Source"
-            action-icon="pi pi-plus"
-            @action="openCreateDialog"
-          />
-
-          <!-- Data Table -->
-          <DataTable
-            v-else-if="hasImportSources"
-            :value="importSources"
-            :loading="loading"
-            stripedRows
-            showGridlines
-            :paginator="true"
-            :rows="10"
-            class="mt-4"
-          >
-            <Column field="name" header="Name" sortable>
-              <template #body="slotProps">
-                <div class="font-semibold">{{ slotProps.data.name }}</div>
-              </template>
-            </Column>
-
-            <Column field="source_type" header="Type" sortable>
-              <template #body="slotProps">
-                <Tag
-                  :value="slotProps.data.source_type === ImportSourceType.DIRECTORY ? 'Directory' : 'IMAP Email'"
-                  :severity="slotProps.data.source_type === ImportSourceType.DIRECTORY ? 'info' : 'primary'"
-                />
-              </template>
-            </Column>
-
-            <Column field="watch_path" header="Path/Server">
-              <template #body="slotProps">
-                <span v-if="slotProps.data.source_type === ImportSourceType.DIRECTORY">
-                  {{ slotProps.data.watch_path || '-' }}
-                </span>
-                <span v-else>
-                  {{ slotProps.data.imap_server || '-' }}
-                </span>
-              </template>
-            </Column>
-
-            <Column field="status" header="Status" sortable>
-              <template #body="slotProps">
-                <Tag
-                  :value="slotProps.data.status"
-                  :severity="getStatusSeverity(slotProps.data.status)"
-                />
-              </template>
-            </Column>
-
-            <Column field="last_run" header="Last Run" sortable>
-              <template #body="slotProps">
-                <span v-if="slotProps.data.last_run">
-                  {{ new Date(slotProps.data.last_run).toLocaleString() }}
-                </span>
-                <span v-else class="text-gray-400">Never</span>
-              </template>
-            </Column>
-
-            <Column header="Actions">
-              <template #body="slotProps">
-                <div class="flex gap-2">
-                  <Button
-                    icon="pi pi-pencil"
-                    severity="secondary"
-                    outlined
-                    @click="openEditDialog(slotProps.data)"
-                  />
-                  <Button
-                    icon="pi pi-trash"
-                    severity="danger"
-                    outlined
-                    @click="deleteImportSource(slotProps.data)"
-                  />
-                </div>
-              </template>
-            </Column>
-          </DataTable>
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-semibold">Import Sources</h3>
+          <Button label="Add Import Source" icon="pi pi-plus" @click="openCreateDialog" />
         </div>
+
+        <!-- Initial Loading State -->
+        <LoadingSpinner
+          v-if="initialLoading"
+          message="Loading import sources..."
+        />
+
+        <!-- Error State -->
+        <EmptyState
+          v-else-if="error"
+          icon="pi pi-exclamation-circle"
+          title="Failed to load import sources"
+          :description="error"
+          action-label="Try Again"
+          action-icon="pi pi-refresh"
+          @action="loadImportSources"
+        />
+
+        <!-- Empty State -->
+        <EmptyState
+          v-else-if="!hasImportSources && !loading"
+          icon="pi pi-folder-open"
+          title="No import sources configured"
+          description="Add your first import source to automatically import documents from directories or email."
+          action-label="Add Import Source"
+          action-icon="pi pi-plus"
+          @action="openCreateDialog"
+        />
+
+        <!-- Data Table -->
+        <DataTable
+          v-else-if="hasImportSources"
+          :value="importSources"
+          :loading="loading"
+          stripedRows
+          showGridlines
+          :paginator="true"
+          :rows="10"
+          class="mt-4"
+        >
+          <Column field="name" header="Name" sortable>
+            <template #body="slotProps">
+              <div class="font-semibold">{{ slotProps.data.name }}</div>
+            </template>
+          </Column>
+
+          <Column field="source_type" header="Type" sortable>
+            <template #body="slotProps">
+              <Tag
+                :value="slotProps.data.source_type === ImportSourceType.DIRECTORY ? 'Directory' : 'IMAP Email'"
+                :severity="slotProps.data.source_type === ImportSourceType.DIRECTORY ? 'info' : 'primary'"
+              />
+            </template>
+          </Column>
+
+          <Column field="watch_path" header="Path/Server">
+            <template #body="slotProps">
+              <span v-if="slotProps.data.source_type === ImportSourceType.DIRECTORY">
+                {{ slotProps.data.watch_path || '-' }}
+              </span>
+              <span v-else>
+                {{ slotProps.data.imap_server || '-' }}
+              </span>
+            </template>
+          </Column>
+
+          <Column field="status" header="Status" sortable>
+            <template #body="slotProps">
+              <Tag
+                :value="slotProps.data.status"
+                :severity="getStatusSeverity(slotProps.data.status)"
+              />
+            </template>
+          </Column>
+
+          <Column field="last_run" header="Last Run" sortable>
+            <template #body="slotProps">
+              <span v-if="slotProps.data.last_run">
+                {{ new Date(slotProps.data.last_run).toLocaleString() }}
+              </span>
+              <span v-else class="text-gray-400">Never</span>
+            </template>
+          </Column>
+
+          <Column header="Actions">
+            <template #body="slotProps">
+              <div class="flex gap-2">
+                <Button
+                  icon="pi pi-pencil"
+                  severity="secondary"
+                  outlined
+                  @click="openEditDialog(slotProps.data)"
+                />
+                <Button
+                  icon="pi pi-trash"
+                  severity="danger"
+                  outlined
+                  @click="deleteImportSource(slotProps.data)"
+                />
+              </div>
+            </template>
+          </Column>
+        </DataTable>
       </div>
     </main>
 
