@@ -12,7 +12,7 @@ export const activityService = {
     resource_id?: string
     action?: string
   }): Promise<ActivityLog[]> {
-    const { data } = await api.get<ActivityLog[]>('/activity-logs/', { params })
+    const { data } = await api.get<ActivityLog[]>('/api/v1/activity-logs/', { params })
     return data
   },
 
@@ -23,7 +23,7 @@ export const activityService = {
     skip?: number
     limit?: number
   }): Promise<ActivityLog[]> {
-    const { data } = await api.get<ActivityLog[]>('/activity-logs/me', { params })
+    const { data } = await api.get<ActivityLog[]>('/api/v1/activity-logs/me', { params })
     return data
   },
 }

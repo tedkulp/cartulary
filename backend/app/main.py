@@ -5,17 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.core.startup import startup_checks
+from app.background_workers import lifespan
 
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# Create FastAPI app with lifespan manager for background workers
 app = FastAPI(
     title=settings.APP_NAME,
     description="Document management system with OCR, RAG search, and LLM metadata extraction",
     version="0.1.0",
     docs_url=f"{settings.API_V1_PREFIX}/docs",
     redoc_url=f"{settings.API_V1_PREFIX}/redoc",
-    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json"
+    openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
+    lifespan=lifespan
 )
 
 
