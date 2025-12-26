@@ -127,7 +127,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
     <ConfirmDialog />
 
@@ -135,7 +135,7 @@ onMounted(() => {
 
     <div class="mb-6 flex items-center justify-between">
       <div>
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Tags</h1>
+        <h1 class="text-3xl font-bold mb-2">Tags</h1>
         <p class="text-gray-600">Organize your documents with tags</p>
       </div>
       <Button label="Create Tag" icon="pi pi-plus" @click="openCreateDialog" />

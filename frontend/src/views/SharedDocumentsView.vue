@@ -59,7 +59,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
 
     <div class="shared-documents-view p-6">

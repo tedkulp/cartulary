@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -14,9 +14,16 @@ import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
 import AppHeader from '@/components/AppHeader.vue'
 import DocumentUpload from '@/components/DocumentUpload.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
+import ErrorBoundary from '@/components/ErrorBoundary.vue'
+import RecentDocumentsWidget from '@/components/RecentDocumentsWidget.vue'
+import ActivityLogWidget from '@/components/ActivityLogWidget.vue'
 import { documentService } from '@/services/documentService'
 import { searchService, type SearchMode } from '@/services/searchService'
 import type { Document } from '@/types/document'
+import { highlightText } from '@/utils/textHighlight'
+import { formatDateTime } from '@/utils/dateFormat'
 
 const router = useRouter()
 const confirm = useConfirm()
@@ -24,6 +31,8 @@ const toast = useToast()
 
 const documents = ref<Document[]>([])
 const loading = ref(false)
+const initialLoading = ref(true)
+const error = ref<string | null>(null)
 const searchQuery = ref('')
 const searchMode = ref<SearchMode>('hybrid')
 const searchModes = [
@@ -32,19 +41,25 @@ const searchModes = [
   { label: 'Keyword (Fast)', value: 'fulltext' },
 ]
 
+const hasDocuments = computed(() => documents.value.length > 0)
+const isSearching = computed(() => searchQuery.value.trim().length > 0)
+
 const loadDocuments = async () => {
   loading.value = true
+  error.value = null
   try {
     documents.value = await documentService.list()
-  } catch (error: any) {
+  } catch (err: any) {
+    error.value = err.response?.data?.detail || 'Failed to load documents'
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load documents',
+      detail: error.value,
       life: 3000,
     })
   } finally {
     loading.value = false
+    initialLoading.value = false
   }
 }
 
@@ -80,12 +95,35 @@ const clearSearch = () => {
 
 const handleDocumentUploaded = (document: Document) => {
   documents.value.unshift(document)
-  toast.add({
-    severity: 'success',
-    summary: 'Success',
-    detail: 'Document uploaded successfully',
-    life: 3000,
-  })
+}
+
+const handleBatchUploadComplete = (results: { successful: Document[], failed: Array<{ filename: string, error: string }> }) => {
+  const { successful, failed } = results
+
+  // Add successful documents to the list
+  if (successful.length > 0) {
+    toast.add({
+      severity: 'success',
+      summary: 'Upload Complete',
+      detail: `${successful.length} file${successful.length !== 1 ? 's' : ''} uploaded successfully`,
+      life: 5000,
+    })
+
+    // Refresh document list to get all new documents
+    loadDocuments()
+  }
+
+  // Show errors for failed uploads
+  if (failed.length > 0) {
+    failed.forEach(({ filename, error }) => {
+      toast.add({
+        severity: 'warn',
+        summary: `Failed: ${filename}`,
+        detail: error,
+        life: 5000,
+      })
+    })
+  }
 }
 
 const handleDelete = (document: Document) => {
@@ -122,8 +160,7 @@ const formatFileSize = (bytes: number): string => {
 }
 
 const formatDate = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleString()
+  return formatDateTime(dateString)
 }
 
 onMounted(() => {
@@ -132,26 +169,35 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
     <ConfirmDialog />
 
     <div class="documents-view p-6 max-w-7xl mx-auto">
 
     <div class="mb-6">
-      <h1 class="text-3xl font-bold text-gray-900 mb-2">Documents</h1>
-      <p class="text-gray-600">Upload and manage your documents</p>
+      <h1 class="text-3xl font-bold mb-2">Documents</h1>
+      <p class="text-muted-color">Upload and manage your documents</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Upload Section -->
-      <div class="lg:col-span-1">
+      <div class="lg:col-span-1 space-y-6">
         <Card>
-          <template #title>Upload Document</template>
+          <template #title>Upload Documents</template>
           <template #content>
-            <DocumentUpload @uploaded="handleDocumentUploaded" />
+            <DocumentUpload
+              @uploaded="handleDocumentUploaded"
+              @batch-complete="handleBatchUploadComplete"
+            />
           </template>
         </Card>
+
+        <!-- Recent Documents Widget -->
+        <RecentDocumentsWidget />
+
+        <!-- Activity Log Widget -->
+        <ActivityLogWidget />
       </div>
 
       <!-- Documents List -->
@@ -201,7 +247,45 @@ onMounted(() => {
                 />
               </div>
             </div>
+            <!-- Initial Loading State -->
+            <LoadingSpinner
+              v-if="initialLoading"
+              message="Loading documents..."
+            />
+
+            <!-- Error State -->
+            <EmptyState
+              v-else-if="error"
+              icon="pi pi-exclamation-circle"
+              title="Failed to load documents"
+              :description="error"
+              action-label="Try Again"
+              action-icon="pi pi-refresh"
+              @action="loadDocuments"
+            />
+
+            <!-- Empty State -->
+            <EmptyState
+              v-else-if="!hasDocuments && !loading && !isSearching"
+              icon="pi pi-file"
+              title="No documents yet"
+              description="Upload your first document to get started. You can drag and drop files or click the upload button."
+            />
+
+            <!-- Search Results Empty -->
+            <EmptyState
+              v-else-if="isSearching && !hasDocuments && !loading"
+              icon="pi pi-search"
+              title="No results found"
+              :description="`No documents match '${searchQuery}'`"
+              action-label="Clear Search"
+              action-icon="pi pi-times"
+              @action="clearSearch"
+            />
+
+            <!-- Data Table -->
             <DataTable
+              v-else-if="hasDocuments"
               :value="documents"
               :loading="loading"
               striped-rows
@@ -211,11 +295,6 @@ onMounted(() => {
               current-page-report-template="Showing {first} to {last} of {totalRecords} documents"
               paginator-template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
             >
-              <template #empty>
-                <div class="text-center py-8 text-gray-500">
-                  No documents uploaded yet. Upload your first document to get started.
-                </div>
-              </template>
 
               <Column field="title" header="Title" sortable>
                 <template #body="{ data }">
@@ -224,9 +303,13 @@ onMounted(() => {
                       :to="`/documents/${data.id}`"
                       class="font-medium text-blue-600 hover:text-blue-800 hover:underline"
                     >
-                      {{ data.title }}
+                      <span v-if="searchQuery" v-html="highlightText(data.title, searchQuery)"></span>
+                      <span v-else>{{ data.title }}</span>
                     </router-link>
-                    <div class="text-sm text-gray-500">{{ data.original_filename }}</div>
+                    <div class="text-sm text-muted-color">
+                      <span v-if="searchQuery" v-html="highlightText(data.original_filename, searchQuery)"></span>
+                      <span v-else>{{ data.original_filename }}</span>
+                    </div>
                   </div>
                 </template>
               </Column>

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, field_serializer
 
 if TYPE_CHECKING:
     from app.schemas.tag import TagResponse
@@ -57,6 +57,17 @@ class DocumentResponse(DocumentBase):
         if "." in self.original_filename:
             return self.original_filename.rsplit(".", 1)[-1].lower()
         return ""
+
+    @field_serializer('created_at', 'updated_at', 'extracted_date')
+    def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
+        """Serialize datetime to ISO 8601 format string with UTC timezone."""
+        if not value:
+            return None
+        # If naive datetime, assume it's UTC and make it timezone-aware
+        if value.tzinfo is None:
+            from datetime import timezone
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
 
     class Config:
         from_attributes = True

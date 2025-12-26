@@ -17,6 +17,7 @@ import { tagService, type Tag } from '@/services/tagService'
 import type { Document } from '@/types/document'
 import api from '@/services/api'
 import DocumentShareDialog from '@/components/DocumentShareDialog.vue'
+import { formatDateTime, formatDate as formatDateUtil } from '@/utils/dateFormat'
 
 const route = useRoute()
 const router = useRouter()
@@ -329,8 +330,18 @@ const formatFileSize = (bytes: number): string => {
 }
 
 const formatDate = (dateString: string): string => {
+  return formatDateTime(dateString)
+}
+
+const formatDateOnly = (dateString: string | null | undefined): string | null => {
+  if (!dateString) return null
+  return formatDateUtil(dateString)
+}
+
+const isValidDate = (dateString: string | null | undefined): boolean => {
+  if (!dateString) return false
   const date = new Date(dateString)
-  return date.toLocaleString()
+  return !isNaN(date.getTime())
 }
 
 onMounted(() => {
@@ -340,7 +351,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
     <ConfirmDialog />
 
@@ -363,7 +374,7 @@ onMounted(() => {
           />
 
           <div v-if="!editingTitle" class="flex items-center gap-2">
-            <h1 class="text-3xl font-bold text-gray-900">{{ document.title }}</h1>
+            <h1 class="text-3xl font-bold">{{ document.title }}</h1>
             <Button icon="pi pi-pencil" text rounded @click="editingTitle = true" />
           </div>
           <div v-else class="flex items-center gap-2">
@@ -567,9 +578,9 @@ onMounted(() => {
               <p class="text-sm text-gray-500">Correspondent</p>
               <p class="font-medium">{{ document.extracted_correspondent }}</p>
             </div>
-            <div v-if="document.extracted_date">
+            <div v-if="document.extracted_date && isValidDate(document.extracted_date)">
               <p class="text-sm text-gray-500">Document Date</p>
-              <p class="font-medium">{{ document.extracted_date }}</p>
+              <p class="font-medium">{{ formatDateOnly(document.extracted_date) }}</p>
             </div>
             <div v-if="document.extracted_document_type">
               <p class="text-sm text-gray-500">Document Type</p>

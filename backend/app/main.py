@@ -57,7 +57,7 @@ async def health_check():
 
 
 # Import and include routers
-from app.api.v1 import auth, documents, search, tags, users, sharing, import_sources, oidc
+from app.api.v1 import auth, documents, search, tags, users, sharing, import_sources, oidc, activity_logs
 
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
@@ -67,3 +67,4 @@ app.include_router(users.router, prefix=settings.API_V1_PREFIX)
 app.include_router(sharing.router, prefix=settings.API_V1_PREFIX)
 app.include_router(import_sources.router, prefix=settings.API_V1_PREFIX)
 app.include_router(oidc.router, prefix=f"{settings.API_V1_PREFIX}/auth/oidc", tags=["oidc"])
+app.include_router(activity_logs.router, prefix=f"{settings.API_V1_PREFIX}/activity-logs", tags=["activity-logs"])

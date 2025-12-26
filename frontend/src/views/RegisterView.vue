@@ -30,11 +30,11 @@ const handleRegister = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-    <div class="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="max-w-md w-full rounded-lg shadow-lg p-8">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Trapper</h1>
-        <p class="text-gray-600">Create your account</p>
+        <h1 class="text-3xl font-bold mb-2">Trapper</h1>
+        <p class="text-muted-color">Create your account</p>
       </div>
 
       <Message v-if="authStore.error" severity="error" :closable="false" class="mb-4">
@@ -43,7 +43,7 @@ const handleRegister = async () => {
 
       <form @submit.prevent="handleRegister" class="space-y-6">
         <div class="space-y-2">
-          <label for="email" class="block text-sm font-medium text-gray-700">
+          <label for="email" class="block text-sm font-medium">
             Email
           </label>
           <InputText
@@ -58,7 +58,7 @@ const handleRegister = async () => {
         </div>
 
         <div class="space-y-2">
-          <label for="fullName" class="block text-sm font-medium text-gray-700">
+          <label for="fullName" class="block text-sm font-medium">
             Full Name (Optional)
           </label>
           <InputText
@@ -71,7 +71,7 @@ const handleRegister = async () => {
         </div>
 
         <div class="space-y-2">
-          <label for="password" class="block text-sm font-medium text-gray-700">
+          <label for="password" class="block text-sm font-medium">
             Password
           </label>
           <Password
@@ -98,9 +98,9 @@ const handleRegister = async () => {
           :disabled="authStore.loading"
         />
 
-        <div class="text-center text-sm text-gray-600">
+        <div class="text-center text-sm text-muted-color">
           Already have an account?
-          <RouterLink to="/login" class="text-blue-600 hover:text-blue-700 font-medium">
+          <RouterLink to="/login" class="font-medium">
             Sign in here
           </RouterLink>
         </div>

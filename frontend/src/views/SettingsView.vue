@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useToast } from 'primevue/usetoast'
 import AppHeader from '@/components/AppHeader.vue'
 import DataTable from 'primevue/datatable'
@@ -10,6 +10,8 @@ import InputText from 'primevue/inputtext'
 import Select from 'primevue/select'
 import Checkbox from 'primevue/checkbox'
 import Tag from 'primevue/tag'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import { importSourceService } from '@/services/importSourceService'
 import { ImportSourceType, ImportSourceStatus } from '@/types/importSource'
 import type { ImportSource, ImportSourceCreate } from '@/types/importSource'
@@ -19,8 +21,13 @@ const toast = useToast()
 // State
 const importSources = ref<ImportSource[]>([])
 const loading = ref(false)
+const initialLoading = ref(true)
+const error = ref<string | null>(null)
 const showDialog = ref(false)
 const editingSource = ref<ImportSource | null>(null)
+
+// Computed
+const hasImportSources = computed(() => importSources.value.length > 0)
 
 // Form data
 const formData = ref<ImportSourceCreate>({
@@ -55,17 +62,20 @@ const statusOptions = [
 // Methods
 const loadImportSources = async () => {
   loading.value = true
+  error.value = null
   try {
     importSources.value = await importSourceService.list()
-  } catch (error: any) {
+  } catch (err: any) {
+    error.value = err.response?.data?.detail || 'Failed to load import sources'
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: error.response?.data?.detail || 'Failed to load import sources',
+      detail: error.value,
       life: 3000
     })
   } finally {
     loading.value = false
+    initialLoading.value = false
   }
 }
 
@@ -187,23 +197,53 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
 
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <div class="px-4 sm:px-0">
         <div class="flex justify-between items-center mb-6">
-          <h2 class="text-2xl font-bold text-gray-900">Settings</h2>
+          <h2 class="text-2xl font-bold">Settings</h2>
         </div>
 
         <!-- Import Sources Section -->
-        <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <div class="shadow rounded-lg p-6 mb-6">
           <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-semibold text-gray-900">Import Sources</h3>
+            <h3 class="text-lg font-semibold">Import Sources</h3>
             <Button label="Add Import Source" icon="pi pi-plus" @click="openCreateDialog" />
           </div>
 
+          <!-- Initial Loading State -->
+          <LoadingSpinner
+            v-if="initialLoading"
+            message="Loading import sources..."
+          />
+
+          <!-- Error State -->
+          <EmptyState
+            v-else-if="error"
+            icon="pi pi-exclamation-circle"
+            title="Failed to load import sources"
+            :description="error"
+            action-label="Try Again"
+            action-icon="pi pi-refresh"
+            @action="loadImportSources"
+          />
+
+          <!-- Empty State -->
+          <EmptyState
+            v-else-if="!hasImportSources && !loading"
+            icon="pi pi-folder-open"
+            title="No import sources configured"
+            description="Add your first import source to automatically import documents from directories or email."
+            action-label="Add Import Source"
+            action-icon="pi pi-plus"
+            @action="openCreateDialog"
+          />
+
+          <!-- Data Table -->
           <DataTable
+            v-else-if="hasImportSources"
             :value="importSources"
             :loading="loading"
             stripedRows

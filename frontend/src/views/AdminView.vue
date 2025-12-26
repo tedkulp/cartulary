@@ -1,29 +1,47 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import TabView from 'primevue/tabview'
 import TabPanel from 'primevue/tabpanel'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
+import ConfirmDialog from 'primevue/confirmdialog'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
 import Checkbox from 'primevue/checkbox'
 import MultiSelect from 'primevue/multiselect'
+import Card from 'primevue/card'
+import Tag from 'primevue/tag'
 import AppHeader from '@/components/AppHeader.vue'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import EmptyState from '@/components/EmptyState.vue'
 import userService from '@/services/userService'
 import type { User, Role, Permission, UserCreate, RoleCreate } from '@/types/user'
 
 const router = useRouter()
 const toast = useToast()
+const confirm = useConfirm()
 
 // State
 const users = ref<User[]>([])
 const roles = ref<Role[]>([])
 const permissions = ref<Permission[]>([])
 const loading = ref(false)
+const initialLoading = ref(true)
+const error = ref<string | null>(null)
+
+// Statistics
+const statistics = computed(() => ({
+  totalUsers: users.value.length,
+  activeUsers: users.value.filter(u => u.is_active).length,
+  superusers: users.value.filter(u => u.is_superuser).length,
+  totalRoles: roles.value.length,
+  totalPermissions: permissions.value.length
+}))
 
 // User dialog
 const userDialog = ref(false)
@@ -50,6 +68,7 @@ const selectedRoles = ref<string[]>([])
 // Load data
 const loadData = async () => {
   loading.value = true
+  error.value = null
   try {
     const [usersData, rolesData, permissionsData] = await Promise.all([
       userService.listUsers(),
@@ -59,15 +78,17 @@ const loadData = async () => {
     users.value = usersData
     roles.value = rolesData
     permissions.value = permissionsData
-  } catch (error) {
+  } catch (err: any) {
+    error.value = err.response?.data?.detail || 'Failed to load admin data'
     toast.add({
       severity: 'error',
       summary: 'Error',
-      detail: 'Failed to load admin data',
+      detail: error.value,
       life: 3000
     })
   } finally {
     loading.value = false
+    initialLoading.value = false
   }
 }
 
@@ -105,25 +126,30 @@ const createUser = async () => {
 }
 
 const deleteUser = async (user: User) => {
-  if (confirm(`Are you sure you want to delete user ${user.email}?`)) {
-    try {
-      await userService.deleteUser(user.id)
-      toast.add({
-        severity: 'success',
-        summary: 'Success',
-        detail: 'User deleted successfully',
-        life: 3000
-      })
-      await loadData()
-    } catch (error: any) {
-      toast.add({
-        severity: 'error',
-        summary: 'Error',
-        detail: error.response?.data?.detail || 'Failed to delete user',
-        life: 3000
-      })
+  confirm.require({
+    message: `Are you sure you want to delete user ${user.email}?`,
+    header: 'Confirm Delete',
+    icon: 'pi pi-exclamation-triangle',
+    accept: async () => {
+      try {
+        await userService.deleteUser(user.id)
+        toast.add({
+          severity: 'success',
+          summary: 'Success',
+          detail: 'User deleted successfully',
+          life: 3000
+        })
+        await loadData()
+      } catch (error: any) {
+        toast.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: error.response?.data?.detail || 'Failed to delete user',
+          life: 3000
+        })
+      }
     }
-  }
+  })
 }
 
 // Role management
@@ -157,25 +183,30 @@ const createRole = async () => {
 }
 
 const deleteRole = async (role: Role) => {
-  if (confirm(`Are you sure you want to delete role ${role.name}?`)) {
-    try {
-      await userService.deleteRole(role.id)
-      toast.add({
-        severity: 'success',
-        summary: 'Success',
-        detail: 'Role deleted successfully',
-        life: 3000
-      })
-      await loadData()
-    } catch (error: any) {
-      toast.add({
-        severity: 'error',
-        summary: 'Error',
-        detail: error.response?.data?.detail || 'Failed to delete role',
-        life: 3000
-      })
+  confirm.require({
+    message: `Are you sure you want to delete role ${role.name}?`,
+    header: 'Confirm Delete',
+    icon: 'pi pi-exclamation-triangle',
+    accept: async () => {
+      try {
+        await userService.deleteRole(role.id)
+        toast.add({
+          severity: 'success',
+          summary: 'Success',
+          detail: 'Role deleted successfully',
+          life: 3000
+        })
+        await loadData()
+      } catch (error: any) {
+        toast.add({
+          severity: 'error',
+          summary: 'Error',
+          detail: error.response?.data?.detail || 'Failed to delete role',
+          life: 3000
+        })
+      }
     }
-  }
+  })
 }
 
 // Role assignment
@@ -233,36 +264,114 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="min-h-screen">
     <AppHeader />
+    <ConfirmDialog />
 
     <div class="admin-view p-6">
       <div class="mb-6">
-      <h1 class="text-3xl font-bold mb-2">Administration</h1>
-      <p class="text-gray-600">Manage users, roles, and permissions</p>
-    </div>
+        <h1 class="text-3xl font-bold mb-2">Administration</h1>
+        <p class="text-muted-color">Manage users, roles, and permissions</p>
+      </div>
 
-    <TabView>
+      <!-- Initial Loading State -->
+      <LoadingSpinner v-if="initialLoading" message="Loading admin data..." />
+
+      <!-- Error State -->
+      <EmptyState
+        v-else-if="error"
+        icon="pi pi-exclamation-circle"
+        title="Failed to load admin data"
+        :description="error"
+        action-label="Try Again"
+        action-icon="pi pi-refresh"
+        @action="loadData"
+      />
+
+      <div v-else>
+        <!-- Statistics Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+          <Card>
+            <template #content>
+              <div class="flex flex-col items-center text-center">
+                <i class="pi pi-users text-4xl text-blue-500 mb-2"></i>
+                <div class="text-3xl font-bold">{{ statistics.totalUsers }}</div>
+                <div class="text-sm text-muted-color">Total Users</div>
+              </div>
+            </template>
+          </Card>
+
+          <Card>
+            <template #content>
+              <div class="flex flex-col items-center text-center">
+                <i class="pi pi-check-circle text-4xl text-green-500 mb-2"></i>
+                <div class="text-3xl font-bold">{{ statistics.activeUsers }}</div>
+                <div class="text-sm text-muted-color">Active Users</div>
+              </div>
+            </template>
+          </Card>
+
+          <Card>
+            <template #content>
+              <div class="flex flex-col items-center text-center">
+                <i class="pi pi-shield text-4xl text-purple-500 mb-2"></i>
+                <div class="text-3xl font-bold">{{ statistics.superusers }}</div>
+                <div class="text-sm text-muted-color">Superusers</div>
+              </div>
+            </template>
+          </Card>
+
+          <Card>
+            <template #content>
+              <div class="flex flex-col items-center text-center">
+                <i class="pi pi-tag text-4xl text-orange-500 mb-2"></i>
+                <div class="text-3xl font-bold">{{ statistics.totalRoles }}</div>
+                <div class="text-sm text-muted-color">Roles</div>
+              </div>
+            </template>
+          </Card>
+
+          <Card>
+            <template #content>
+              <div class="flex flex-col items-center text-center">
+                <i class="pi pi-lock text-4xl text-red-500 mb-2"></i>
+                <div class="text-3xl font-bold">{{ statistics.totalPermissions }}</div>
+                <div class="text-sm text-muted-color">Permissions</div>
+              </div>
+            </template>
+          </Card>
+        </div>
+
+        <TabView>
       <!-- Users Tab -->
       <TabPanel header="Users">
         <div class="mb-4">
           <Button label="Create User" icon="pi pi-plus" @click="openUserDialog" />
         </div>
 
-        <DataTable :value="users" :loading="loading" stripedRows>
+        <EmptyState
+          v-if="users.length === 0 && !loading"
+          icon="pi pi-users"
+          title="No users yet"
+          description="Create your first user to get started."
+          action-label="Create User"
+          action-icon="pi pi-plus"
+          @action="openUserDialog"
+        />
+
+        <DataTable v-else :value="users" :loading="loading" stripedRows>
           <Column field="email" header="Email" sortable></Column>
           <Column field="full_name" header="Full Name" sortable></Column>
           <Column header="Roles">
             <template #body="slotProps">
               <div class="flex flex-wrap gap-1">
-                <span
+                <Tag
                   v-for="role in slotProps.data.roles"
                   :key="role.id"
-                  class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
-                >
-                  {{ role.name }}
-                </span>
-                <span v-if="!slotProps.data.roles || slotProps.data.roles.length === 0" class="text-gray-400 text-sm">
+                  :value="role.name"
+                  severity="info"
+                />
+                <span v-if="!slotProps.data.roles || slotProps.data.roles.length === 0" class="text-muted-color text-sm">
                   No roles
                 </span>
               </div>
@@ -303,7 +412,17 @@ onMounted(() => {
           <Button label="Create Role" icon="pi pi-plus" @click="openRoleDialog" />
         </div>
 
-        <DataTable :value="roles" :loading="loading" stripedRows>
+        <EmptyState
+          v-if="roles.length === 0 && !loading"
+          icon="pi pi-tag"
+          title="No roles yet"
+          description="Create your first role to organize permissions."
+          action-label="Create Role"
+          action-icon="pi pi-plus"
+          @action="openRoleDialog"
+        />
+
+        <DataTable v-else :value="roles" :loading="loading" stripedRows>
           <Column field="name" header="Name" sortable></Column>
           <Column field="description" header="Description"></Column>
           <Column header="Actions">
@@ -321,12 +440,20 @@ onMounted(() => {
 
       <!-- Permissions Tab -->
       <TabPanel header="Permissions">
-        <DataTable :value="permissions" :loading="loading" stripedRows>
+        <EmptyState
+          v-if="permissions.length === 0 && !loading"
+          icon="pi pi-lock"
+          title="No permissions"
+          description="Permissions are system-defined and cannot be created manually."
+        />
+
+        <DataTable v-else :value="permissions" :loading="loading" stripedRows>
           <Column field="name" header="Name" sortable></Column>
           <Column field="description" header="Description"></Column>
         </DataTable>
       </TabPanel>
     </TabView>
+      </div>
 
     <!-- Create User Dialog -->
     <Dialog v-model:visible="userDialog" header="Create User" :modal="true" :style="{ width: '500px' }">

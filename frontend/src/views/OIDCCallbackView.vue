@@ -2,11 +2,13 @@
 import { onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { useAuthStore } from '@/stores/auth'
 import { authService } from '@/services/authService'
 
 const router = useRouter()
 const route = useRoute()
 const toast = useToast()
+const authStore = useAuthStore()
 const loading = ref(true)
 const error = ref<string | null>(null)
 
@@ -23,11 +25,16 @@ onMounted(async () => {
     // Exchange code for tokens
     const tokenResponse = await authService.handleOIDCCallback(code, state)
 
-    // Store tokens
+    // Update auth store with tokens
+    authStore.accessToken = tokenResponse.access_token
     localStorage.setItem('access_token', tokenResponse.access_token)
+
     if (tokenResponse.refresh_token) {
       localStorage.setItem('refresh_token', tokenResponse.refresh_token)
     }
+
+    // Fetch current user to complete authentication
+    await authStore.fetchCurrentUser()
 
     // Show success message
     toast.add({
@@ -61,7 +68,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex items-center justify-center min-h-screen bg-gray-100">
+  <div class="flex items-center justify-center min-h-screen">
     <div class="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
       <div v-if="loading" class="space-y-4">
         <i class="pi pi-spin pi-spinner text-4xl text-blue-500"></i>

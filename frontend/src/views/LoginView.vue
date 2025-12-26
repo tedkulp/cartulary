@@ -52,11 +52,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-    <div class="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
+  <div class="min-h-screen flex items-center justify-center px-4">
+    <div class="max-w-md w-full rounded-lg shadow-lg p-8">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Trapper</h1>
-        <p class="text-gray-600">Sign in to your account</p>
+        <h1 class="text-3xl font-bold mb-2">Trapper</h1>
+        <p class="text-muted-color">Sign in to your account</p>
       </div>
 
       <Message v-if="authStore.error" severity="error" :closable="false" class="mb-4">
@@ -65,7 +65,7 @@ onMounted(async () => {
 
       <form @submit.prevent="handleLogin" class="space-y-6">
         <div class="space-y-2">
-          <label for="email" class="block text-sm font-medium text-gray-700">
+          <label for="email" class="block text-sm font-medium">
             Email
           </label>
           <InputText
@@ -80,7 +80,7 @@ onMounted(async () => {
         </div>
 
         <div class="space-y-2">
-          <label for="password" class="block text-sm font-medium text-gray-700">
+          <label for="password" class="block text-sm font-medium">
             Password
           </label>
           <Password
@@ -110,21 +110,22 @@ onMounted(async () => {
 
       <div v-if="!oidcLoading && oidcEnabled">
         <Divider align="center">
-          <span class="text-sm text-gray-500">OR</span>
+          <span class="text-sm text-muted-color">OR</span>
         </Divider>
 
         <Button
           type="button"
           label="Sign in with SSO"
           icon="pi pi-sign-in"
-          class="w-full p-button-outlined"
+          class="w-full"
+          outlined
           @click="handleOIDCLogin"
         />
       </div>
 
-      <div class="text-center text-sm text-gray-600 mt-6">
+      <div class="text-center text-sm text-muted-color mt-6">
         Don't have an account?
-        <RouterLink to="/register" class="text-blue-600 hover:text-blue-700 font-medium">
+        <RouterLink to="/register" class="font-medium">
           Register here
         </RouterLink>
       </div>

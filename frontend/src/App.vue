@@ -4,7 +4,7 @@ import Toast from 'primevue/toast'
 </script>
 
 <template>
-  <div id="app" class="min-h-screen bg-gray-50">
+  <div id="app" class="min-h-screen">
     <Toast />
     <RouterView />
   </div>
