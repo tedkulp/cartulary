@@ -34,9 +34,8 @@ aioboto3>=12.0.0
 PyMuPDF>=1.23.0  # For PDF text extraction
 Pillow>=10.0.0  # For image processing
 
-# Optional OCR (uncomment to enable PaddleOCR)
-# paddleocr>=2.7.0
-# paddlepaddle>=2.5.0
+# OCR with EasyOCR (better ARM64 support than PaddleOCR)
+easyocr>=1.7.0
 
 # Embeddings & LLM
 sentence-transformers>=2.2.0

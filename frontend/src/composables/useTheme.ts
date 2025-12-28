@@ -1,6 +1,6 @@
 import { ref, onMounted, watch } from 'vue'
 
-const THEME_STORAGE_KEY = 'trapper-theme'
+const THEME_STORAGE_KEY = 'cartulary-theme'
 
 export type Theme = 'light' | 'dark'
 

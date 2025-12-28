@@ -1,10 +1,10 @@
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: trapper-postgres
+    container_name: cartulary-postgres
     environment:
-      POSTGRES_DB: trapper
-      POSTGRES_USER: trapper
+      POSTGRES_DB: cartulary
+      POSTGRES_USER: cartulary
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -12,16 +12,16 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U trapper"]
+      test: ["CMD-SHELL", "pg_isready -U cartulary"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - trapper-network
+      - cartulary-network
 
   redis:
     image: redis:7-alpine
-    container_name: trapper-redis
+    container_name: cartulary-redis
     ports:
       - "6379:6379"
     volumes:
@@ -32,13 +32,13 @@ services:
       timeout: 3s
       retries: 3
     networks:
-      - trapper-network
+      - cartulary-network
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: trapper-backend
+    container_name: cartulary-backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
       - ./backend:/app
@@ -48,7 +48,7 @@ services:
       - "8000:8000"
     environment:
       - RUN_MIGRATIONS=true
-      - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
+      - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -70,6 +70,10 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost:5173/auth/callback}
+      # OCR configuration
+      - OCR_ENABLED=${OCR_ENABLED:-false}
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
+      - OCR_USE_GPU=${OCR_USE_GPU:-false}
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
       - ENABLE_IMAP_WATCHER=${ENABLE_IMAP_WATCHER:-false}
@@ -79,13 +83,13 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - trapper-network
+      - cartulary-network
 
   celery_worker:
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    container_name: trapper-celery-worker
+      dockerfile: Dockerfile.paddleocr
+    container_name: cartulary-celery-worker
     # Run both worker and beat in the same container
     command: >
       sh -c "celery -A app.tasks.celery_app beat --loglevel=info --detach &&
@@ -94,7 +98,7 @@ services:
       - ./backend:/app
       - ./document_storage:/data/documents
     environment:
-      - DATABASE_URL=postgresql://trapper:${DB_PASSWORD:-changeme}@postgres:5432/trapper
+      - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -109,19 +113,23 @@ services:
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # OCR configuration
+      - OCR_ENABLED=${OCR_ENABLED:-false}
+      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
+      - OCR_USE_GPU=${OCR_USE_GPU:-false}
     depends_on:
       - postgres
       - redis
       - backend
     networks:
-      - trapper-network
+      - cartulary-network
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: trapper-frontend
+    container_name: cartulary-frontend
     command: npm run dev
     volumes:
       - ./frontend:/app
@@ -129,7 +137,7 @@ services:
     ports:
       - "5173:5173"
     networks:
-      - trapper-network
+      - cartulary-network
     depends_on:
       - backend
 
@@ -139,5 +147,5 @@ volumes:
   document_storage:
 
 networks:
-  trapper-network:
+  cartulary-network:
     driver: bridge

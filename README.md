@@ -1,6 +1,6 @@
-# Trapper
+# Cartulary
 
-A modern document management system with OCR processing, semantic search, and AI-powered metadata extraction.
+A modern digital archive system with OCR processing, semantic search, and AI-powered metadata extraction.
 
 ## Features
 
@@ -47,7 +47,7 @@ A modern document management system with OCR processing, semantic search, and AI
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd trapper
+   cd cartulary
    ```
 
 2. **Copy environment files**:
@@ -127,7 +127,7 @@ npm run test:e2e
 ## Project Structure
 
 ```
-trapper/
+cartulary/
 ├── backend/              # Python FastAPI backend
 │   ├── app/
 │   │   ├── api/v1/      # API endpoints

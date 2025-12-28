@@ -1,41 +1,41 @@
-# Trapper Architecture
+# Cartulary Architecture
 
 ## Container Architecture
 
-Trapper uses a **consolidated container architecture** for simplicity and resource efficiency.
+Cartulary uses a **consolidated container architecture** for simplicity and resource efficiency.
 
 ### Containers (5 total)
 
-1. **`trapper-postgres`** - PostgreSQL 16 with pgvector extension
+1. **`cartulary-postgres`** - PostgreSQL 16 with pgvector extension
    - Stores all application data
    - Provides vector similarity search capabilities
 
-2. **`trapper-redis`** - Redis 7
+2. **`cartulary-redis`** - Redis 7
    - Caching layer
    - Celery message broker
    - Celery result backend
 
-3. **`trapper-backend`** - FastAPI application server
+3. **`cartulary-backend`** - FastAPI application server
    - HTTP API endpoints
    - Authentication & authorization
    - Background workers (directory watcher, IMAP watcher)
    - Runs on port 8000
 
-4. **`trapper-celery-worker`** - Celery worker + beat
+4. **`cartulary-celery-worker`** - Celery worker + beat
    - Heavy processing tasks (OCR, embeddings, LLM metadata extraction)
    - Scheduled tasks (periodic cleanup, etc.)
    - Both worker and beat scheduler run in same container
 
-5. **`trapper-frontend`** - Vue 3 development server
+5. **`cartulary-frontend`** - Vue 3 development server
    - Development only (production serves static files from nginx/CDN)
    - Runs on port 5173
 
 ### Previous Architecture (8 containers)
 
 The system was previously split into 8 separate containers:
-- ❌ `trapper-celery-beat` - **Merged into celery-worker**
-- ❌ `trapper-directory-watcher` - **Merged into backend**
-- ❌ `trapper-imap-watcher` - **Merged into backend**
+- ❌ `cartulary-celery-beat` - **Merged into celery-worker**
+- ❌ `cartulary-directory-watcher` - **Merged into backend**
+- ❌ `cartulary-imap-watcher` - **Merged into backend**
 
 ## Background Workers
 
@@ -104,7 +104,7 @@ ENABLE_IMAP_WATCHER=false
 ## Directory Structure
 
 ```
-trapper/
+cartulary/
 ├── backend/
 │   ├── app/
 │   │   ├── api/v1/          # API endpoints
@@ -165,7 +165,7 @@ Total: **4 containers** in production
 
 4. **Verify background workers:**
    ```bash
-   docker logs trapper-backend | grep "background"
+   docker logs cartulary-backend | grep "background"
    # Should show: "Directory watcher enabled and started"
    ```
 
@@ -185,7 +185,7 @@ ENABLE_IMAP_WATCHER=false       # Enable IMAP email import
 
 Check backend logs:
 ```bash
-docker logs trapper-backend | grep -i watcher
+docker logs cartulary-backend | grep -i watcher
 ```
 
 Expected output:
@@ -206,7 +206,7 @@ ENABLE_IMAP_WATCHER=false
 
 Check if both are running:
 ```bash
-docker exec trapper-celery-worker ps aux | grep celery
+docker exec cartulary-celery-worker ps aux | grep celery
 ```
 
 Should show:
@@ -233,5 +233,5 @@ Potential further consolidation:
 
 ---
 
-Last Updated: 2025-12-25
-Architecture Version: 2.0 (Consolidated)
+Last Updated: 2025-12-26
+Architecture Version: 2.0 (Consolidated, Rebranded as Cartulary)

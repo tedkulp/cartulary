@@ -33,7 +33,7 @@ const handleRegister = async () => {
   <div class="min-h-screen flex items-center justify-center px-4">
     <div class="max-w-md w-full rounded-lg shadow-lg p-8">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold mb-2">Trapper</h1>
+        <h1 class="text-3xl font-bold mb-2">Cartulary</h1>
         <p class="text-muted-color">Create your account</p>
       </div>
 

@@ -1,10 +1,10 @@
-# Claude Code Assistant - Trapper Project Guide
+# Claude Code Assistant - Cartulary Project Guide
 
-This document contains context, conventions, and best practices for working on the Trapper document management system with Claude Code.
+This document contains context, conventions, and best practices for working on the Cartulary digital archive system with Claude Code.
 
 ## Project Overview
 
-**Trapper** is a document management system similar to paperless-ngx with advanced features:
+**Cartulary** is a digital archive system similar to paperless-ngx with advanced features:
 - OCR processing with PaddleOCR
 - Semantic search using RAG (Retrieval Augmented Generation)
 - Optional LLM-based metadata extraction (OpenAI, Gemini, Ollama)
@@ -39,7 +39,7 @@ This document contains context, conventions, and best practices for working on t
 ## Project Structure
 
 ```
-trapper/
+cartulary/
 ├── backend/              # Python FastAPI backend
 │   ├── app/
 │   │   ├── api/v1/      # API endpoints (versioned)
@@ -395,7 +395,7 @@ const uploadDocument = async (file: File) => {
 **Backend (.env)**
 ```bash
 # Database
-DATABASE_URL=postgresql://trapper:password@postgres:5432/trapper
+DATABASE_URL=postgresql://cartulary:password@postgres:5432/cartulary
 
 # Redis
 REDIS_URL=redis://redis:6379/0
@@ -441,7 +441,7 @@ OIDC_CLAIM_NAME=name
 OIDC_CLAIM_GROUPS=groups  # Optional
 ```
 
-**Frontend (.env)**
+**Frontend (.env.local)**
 ```bash
 VITE_API_URL=http://localhost:8000
 ```
@@ -708,5 +708,5 @@ When starting a new session, provide:
 
 ---
 
-Last Updated: 2025-12-25
-Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete)
+Last Updated: 2025-12-26
+Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete, Rebranded as Cartulary)

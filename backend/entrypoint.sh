@@ -2,7 +2,7 @@
 set -e
 
 echo "Waiting for postgres..."
-while ! pg_isready -h postgres -U trapper > /dev/null 2>&1; do
+while ! pg_isready -h postgres -U cartulary > /dev/null 2>&1; do
   sleep 1
 done
 echo "PostgreSQL is ready!"

@@ -2,8 +2,8 @@
 from typing import Any, Optional
 
 
-class TrapperException(Exception):
-    """Base exception for Trapper application."""
+class CartularyException(Exception):
+    """Base exception for Cartulary application."""
 
     def __init__(
         self,
@@ -17,28 +17,28 @@ class TrapperException(Exception):
         super().__init__(self.message)
 
 
-class AuthenticationError(TrapperException):
+class AuthenticationError(CartularyException):
     """Exception raised for authentication errors."""
 
     def __init__(self, message: str = "Could not validate credentials"):
         super().__init__(message, status_code=401)
 
 
-class PermissionDeniedError(TrapperException):
+class PermissionDeniedError(CartularyException):
     """Exception raised when user doesn't have permission."""
 
     def __init__(self, message: str = "Permission denied"):
         super().__init__(message, status_code=403)
 
 
-class NotFoundError(TrapperException):
+class NotFoundError(CartularyException):
     """Exception raised when resource is not found."""
 
     def __init__(self, message: str = "Resource not found"):
         super().__init__(message, status_code=404)
 
 
-class DuplicateError(TrapperException):
+class DuplicateError(CartularyException):
     """Exception raised when trying to create duplicate resource."""
 
     def __init__(

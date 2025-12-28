@@ -15,7 +15,7 @@ class OCRService:
         """Initialize OCR service."""
         self.enabled = settings.OCR_ENABLED
         self.languages = settings.OCR_LANGUAGES
-        self.use_gpu = settings.PADDLEOCR_USE_GPU
+        self.use_gpu = settings.OCR_USE_GPU
         self._ocr_engine = None
 
     def _initialize_engine(self):
@@ -25,23 +25,39 @@ class OCRService:
 
         if self._ocr_engine is None:
             try:
-                from paddleocr import PaddleOCR
+                import easyocr
 
-                self._ocr_engine = PaddleOCR(
-                    use_angle_cls=True,
-                    lang="en",  # TODO: Support multiple languages
-                    use_gpu=self.use_gpu,
-                    show_log=False,
+                # Auto-detect GPU availability if use_gpu is True
+                use_gpu = self.use_gpu
+                if use_gpu:
+                    try:
+                        import torch
+                        if not torch.cuda.is_available():
+                            logger.warning("GPU requested but CUDA not available, falling back to CPU")
+                            use_gpu = False
+                        else:
+                            logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
+                    except ImportError:
+                        logger.warning("PyTorch not available for GPU detection, falling back to CPU")
+                        use_gpu = False
+
+                # EasyOCR supports multiple languages and works well on ARM64
+                # Map our language codes to EasyOCR format
+                lang_list = [lang if lang != "en" else "en" for lang in self.languages]
+
+                self._ocr_engine = easyocr.Reader(
+                    lang_list=lang_list,
+                    gpu=use_gpu
                 )
-                logger.info("PaddleOCR engine initialized successfully")
+                logger.info(f"EasyOCR engine initialized successfully with languages: {lang_list}, GPU: {use_gpu}")
             except ImportError:
                 logger.warning(
-                    "PaddleOCR not installed. OCR features will be disabled. "
-                    "Install with: pip install paddleocr paddlepaddle"
+                    "EasyOCR not installed. OCR features will be disabled. "
+                    "Install with: pip install easyocr"
                 )
                 self.enabled = False
             except Exception as e:
-                logger.error(f"Failed to initialize PaddleOCR: {e}")
+                logger.error(f"Failed to initialize EasyOCR: {e}")
                 self.enabled = False
 
     def extract_text(self, file_path: str) -> Optional[str]:
@@ -90,17 +106,17 @@ class OCRService:
             Extracted text
         """
         try:
-            result = self._ocr_engine.ocr(image_path, cls=True)
+            # EasyOCR returns: [([bbox], text, confidence), ...]
+            result = self._ocr_engine.readtext(image_path)
 
-            if not result or not result[0]:
+            if not result:
                 return ""
 
             # Extract text from OCR results
-            # PaddleOCR returns: [[[bbox], (text, confidence)], ...]
             text_lines = []
-            for line in result[0]:
-                if line and len(line) >= 2:
-                    text, confidence = line[1]
+            for detection in result:
+                if len(detection) >= 3:
+                    bbox, text, confidence = detection
                     if confidence > 0.5:  # Only include confident results
                         text_lines.append(text)
 

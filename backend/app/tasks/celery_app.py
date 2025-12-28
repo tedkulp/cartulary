@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Create Celery app
 celery_app = Celery(
-    "trapper",
+    "cartulary",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
     include=["app.tasks.document_tasks"],  # Include task modules

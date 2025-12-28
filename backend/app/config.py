@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    APP_NAME: str = "Trapper"
+    APP_NAME: str = "Cartulary"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
 
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # OCR (Phase 2)
     OCR_ENABLED: bool = False
     OCR_LANGUAGES: List[str] = ["en"]
-    PADDLEOCR_USE_GPU: bool = False
+    OCR_USE_GPU: bool = False  # Enable GPU acceleration for OCR if available
 
     @field_validator("OCR_LANGUAGES", mode="before")
     @classmethod

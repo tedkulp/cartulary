@@ -33,7 +33,7 @@ const handleLogout = () => {
     <div class="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
       <div class="flex justify-between items-center">
         <h1 class="text-2xl font-bold cursor-pointer" @click="router.push('/')">
-          Trapper
+          Cartulary
         </h1>
         <div class="flex items-center gap-4">
           <div class="text-sm">

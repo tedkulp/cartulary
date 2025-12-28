@@ -60,7 +60,7 @@ def validate_embedding_dimension():
                     f"This mismatch will cause embedding operations to fail.\n\n"
                     f"To fix this:\n"
                     f"  1. If you changed providers, update the database:\n"
-                    f"     docker exec trapper-backend python scripts/update_embedding_dimension.py {configured_dimension}\n"
+                    f"     docker exec cartulary-backend python scripts/update_embedding_dimension.py {configured_dimension}\n"
                     f"  2. Or update your .env file to match the database dimension:\n"
                     f"     EMBEDDING_DIMENSION={db_dimension}\n"
                     f"  3. Restart the application\n"
