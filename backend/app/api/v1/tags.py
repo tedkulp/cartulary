@@ -11,6 +11,7 @@ from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
 from app.schemas.tag import DocumentTagRequest, TagCreate, TagResponse, TagUpdate
+from app.services.notification_service import notification_service
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -188,6 +189,18 @@ async def add_tags_to_document(
 
     db.commit()
 
+    # Notify about document update
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"===== TAGS: About to notify document update for document_id={document_id}, user_id={current_user.id} =====")
+    logger.info(f"About to notify document update for document_id={document_id}, user_id={current_user.id}")
+
+    try:
+        await notification_service.notify_document_updated(document_id, current_user.id)
+        logger.info("Successfully notified document update")
+    except Exception as e:
+        logger.error(f"Failed to notify document update: {e}", exc_info=True)
+
     return {"message": "Tags added successfully", "tag_count": len(tags)}
 
 
@@ -221,3 +234,14 @@ async def remove_tag_from_document(
     if tag in document.tags:
         document.tags.remove(tag)
         db.commit()
+
+        # Notify about document update
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"About to notify document update (tag removed) for document_id={document_id}, user_id={current_user.id}")
+
+        try:
+            await notification_service.notify_document_updated(document_id, current_user.id)
+            logger.info("Successfully notified document update (tag removed)")
+        except Exception as e:
+            logger.error(f"Failed to notify document update (tag removed): {e}", exc_info=True)

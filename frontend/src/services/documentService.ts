@@ -17,9 +17,14 @@ export const documentService = {
     return response.data
   },
 
-  async list(skip = 0, limit = 50): Promise<Document[]> {
+  async list(skip = 0, limit = 1000, sortBy = 'created_at', sortOrder = 'desc'): Promise<Document[]> {
     const response = await api.get<Document[]>('/api/v1/documents', {
-      params: { skip, limit },
+      params: {
+        skip,
+        limit,
+        sort_by: sortBy,
+        sort_order: sortOrder
+      },
     })
     return response.data
   },

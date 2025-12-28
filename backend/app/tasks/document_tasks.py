@@ -11,12 +11,13 @@ from app.database import SessionLocal
 from app.models.document import Document, DocumentEmbedding
 from app.services.ocr_service import OCRService
 from app.services.embedding_service import EmbeddingService
+from app.services.notification_service import notification_service
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="app.tasks.process_document")
+@celery_app.task(bind=True, name="app.tasks.process_document", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
 def process_document(self, document_id: str) -> dict:
     """
     Process a document: extract text via OCR and update database.
@@ -27,7 +28,13 @@ def process_document(self, document_id: str) -> dict:
     Returns:
         Processing result dict with status and metadata
     """
+    # Dispose the engine to ensure fresh connections after fork
+    from app.database import engine
+    engine.dispose()
+
+    # Create a fresh database session
     db: Session = SessionLocal()
+
     try:
         # Get document from database
         doc = db.query(Document).filter(Document.id == UUID(document_id)).first()
@@ -38,6 +45,11 @@ def process_document(self, document_id: str) -> dict:
         # Update status to processing
         doc.processing_status = "processing"
         db.commit()
+
+        # Notify status change
+        notification_service.notify_status_changed_sync(
+            UUID(document_id), "pending", "processing"
+        )
 
         logger.info(f"Processing document {document_id}: {doc.original_filename}")
 
@@ -58,6 +70,13 @@ def process_document(self, document_id: str) -> dict:
             doc.ocr_text = extracted_text
             doc.ocr_language = ocr_service.detect_language(extracted_text)
             doc.processing_status = "ocr_complete"
+            db.commit()
+
+            # Notify status change
+            notification_service.notify_status_changed_sync(
+                UUID(document_id), "processing", "ocr_complete"
+            )
+
             logger.info(
                 f"Extracted {len(extracted_text)} characters from {doc.original_filename}"
             )
@@ -67,6 +86,12 @@ def process_document(self, document_id: str) -> dict:
             # Mark as pending for retry or manual processing
             doc.processing_status = "ocr_failed"
             doc.processing_error = "No text could be extracted from document"
+            db.commit()
+
+            # Notify status change
+            notification_service.notify_status_changed_sync(
+                UUID(document_id), "processing", "ocr_failed"
+            )
 
         # Count pages if PDF
         if absolute_path.endswith(".pdf"):
@@ -138,7 +163,7 @@ def reprocess_document(document_id: str) -> dict:
     return process_document(document_id)
 
 
-@celery_app.task(bind=True, name="app.tasks.generate_embeddings")
+@celery_app.task(bind=True, name="app.tasks.generate_embeddings", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
 def generate_embeddings(self, document_id: str) -> dict:
     """
     Generate vector embeddings for a document's text.
@@ -149,6 +174,10 @@ def generate_embeddings(self, document_id: str) -> dict:
     Returns:
         Processing result dict with status and embedding count
     """
+    # Dispose the engine to ensure fresh connections after fork
+    from app.database import engine
+    engine.dispose()
+
     db: Session = SessionLocal()
     try:
         # Get document from database using raw SQL to avoid SQLAlchemy lazy-loading issues
@@ -255,6 +284,11 @@ def generate_embeddings(self, document_id: str) -> dict:
         )
         db.commit()
 
+        # Notify status change
+        notification_service.notify_status_changed_sync(
+            UUID(document_id), "ocr_complete", "embedding_complete"
+        )
+
         logger.info(
             f"Generated {len(embeddings)} embeddings for document {document_id}"
         )
@@ -294,8 +328,8 @@ def generate_embeddings(self, document_id: str) -> dict:
         db.close()
 
 
-@celery_app.task(name="tasks.extract_metadata")
-def extract_metadata(document_id: str):
+@celery_app.task(bind=True, name="tasks.extract_metadata", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
+def extract_metadata(self, document_id: str):
     """
     Extract metadata from document using LLM.
 
@@ -313,6 +347,10 @@ def extract_metadata(document_id: str):
     if not settings.LLM_ENABLED:
         logger.info("LLM is disabled, skipping metadata extraction")
         return {"status": "skipped", "reason": "LLM disabled"}
+
+    # Dispose the engine to ensure fresh connections after fork
+    from app.database import engine
+    engine.dispose()
 
     db = SessionLocal()
 
@@ -382,6 +420,12 @@ def extract_metadata(document_id: str):
             update_sql = f"UPDATE documents SET {', '.join(updates)} WHERE id = :doc_id"
             db.execute(sql_text(update_sql), params)
             db.commit()
+
+            # Notify status change
+            notification_service.notify_status_changed_sync(
+                UUID(document_id), "embedding_complete", "llm_complete"
+            )
+
             logger.info(f"Updated document {document_id} with extracted metadata")
 
         # Handle suggested tags
@@ -450,6 +494,10 @@ def extract_metadata(document_id: str):
                         logger.error(f"Error processing tag '{tag_name}': {tag_error}")
                         db.rollback()
                         continue
+
+            # Notify about document update after tags are added
+            if suggested_tags:
+                notification_service.notify_document_updated_sync(UUID(document_id), UUID(owner_id))
 
         return {
             "status": "success",

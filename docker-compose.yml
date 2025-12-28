@@ -91,9 +91,10 @@ services:
       dockerfile: Dockerfile.paddleocr
     container_name: cartulary-celery-worker
     # Run both worker and beat in the same container
+    # Limit concurrency to 2 workers to reduce memory usage
     command: >
       sh -c "celery -A app.tasks.celery_app beat --loglevel=info --detach &&
-             celery -A app.tasks.celery_app worker --loglevel=info"
+             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=10"
     volumes:
       - ./backend:/app
       - ./document_storage:/data/documents
@@ -117,6 +118,12 @@ services:
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
       - OCR_USE_GPU=${OCR_USE_GPU:-false}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     depends_on:
       - postgres
       - redis

@@ -20,6 +20,7 @@ from app.models.user import User
 from app.models.document import Document
 from app.schemas.document import DocumentResponse, DocumentUpdate
 from app.services.document_service import DocumentService
+from app.services.notification_service import notification_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -70,6 +71,10 @@ async def upload_document(
             user_id=current_user.id,
             title=title
         )
+
+        # Notify document creation
+        await notification_service.notify_document_created(document.id, current_user.id)
+
         return document
 
     except DuplicateError as e:
@@ -100,6 +105,8 @@ async def upload_document(
 def list_documents(
     skip: int = 0,
     limit: int = 50,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     current_user: User = Depends(get_current_user),
     permission_service: PermissionService = Depends(get_permission_service),
     db: Session = Depends(get_db)
@@ -111,12 +118,37 @@ def list_documents(
     - Documents owned by the user
     - Public documents
     - Documents shared with the user
+
+    Args:
+        skip: Number of records to skip (pagination)
+        limit: Maximum number of records to return
+        sort_by: Field to sort by (created_at, title, file_size, processing_status)
+        sort_order: Sort order (asc or desc)
     """
-    if limit > 100:
-        limit = 100  # Max limit
+    if limit > 1000:
+        limit = 1000  # Max limit
+
+    # Validate sort field
+    allowed_sort_fields = {
+        'created_at': Document.created_at,
+        'updated_at': Document.updated_at,
+        'title': Document.title,
+        'file_size': Document.file_size,
+        'processing_status': Document.processing_status,
+        'original_filename': Document.original_filename
+    }
+
+    sort_field = allowed_sort_fields.get(sort_by, Document.created_at)
 
     # Use permission service to get accessible documents
     query = permission_service.get_accessible_documents_query(current_user)
+
+    # Apply sorting
+    if sort_order.lower() == 'asc':
+        query = query.order_by(sort_field.asc())
+    else:
+        query = query.order_by(sort_field.desc())
+
     documents = query.offset(skip).limit(limit).all()
 
     return documents
@@ -263,7 +295,7 @@ def regenerate_metadata(
     summary="Update document metadata",
     description="Update document title and other metadata"
 )
-def update_document(
+async def update_document(
     document_id: UUID,
     document_update: DocumentUpdate,
     document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
@@ -279,6 +311,9 @@ def update_document(
     db.commit()
     db.refresh(document)
 
+    # Notify document update
+    await notification_service.notify_document_updated(document.id, document.owner_id)
+
     return document
 
 
@@ -288,13 +323,16 @@ def update_document(
     summary="Delete document",
     description="Delete a document and its associated files"
 )
-def delete_document(
+async def delete_document(
     document_id: UUID,
     document: Document = Depends(require_document_access(PermissionLevel.ADMIN)),
     db: Session = Depends(get_db)
 ):
     """Delete a document (requires admin access - typically owner only)."""
     from app.services.storage_service import StorageService
+
+    # Store owner_id before deletion
+    owner_id = document.owner_id
 
     # Delete file from storage
     try:
@@ -311,5 +349,8 @@ def delete_document(
     # Delete database record (cascades to embeddings and shares)
     db.delete(document)
     db.commit()
+
+    # Notify document deletion
+    await notification_service.notify_document_deleted(document_id, owner_id)
 
     return None

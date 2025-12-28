@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Button from 'primevue/button'
 import Card from 'primevue/card'
@@ -18,11 +18,13 @@ import type { Document } from '@/types/document'
 import api from '@/services/api'
 import DocumentShareDialog from '@/components/DocumentShareDialog.vue'
 import { formatDateTime, formatDate as formatDateUtil } from '@/utils/dateFormat'
+import { useWebSocket } from '@/composables/useWebSocket'
 
 const route = useRoute()
 const router = useRouter()
 const confirm = useConfirm()
 const toast = useToast()
+const { subscribe } = useWebSocket()
 
 const document = ref<Document | null>(null)
 const loading = ref(false)
@@ -218,8 +220,7 @@ const handleReprocess = () => {
           detail: 'Document reprocessing started',
           life: 3000,
         })
-        // Reload document after a delay
-        setTimeout(loadDocument, 2000)
+        // WebSocket will handle the reload automatically
       } catch (error: any) {
         toast.add({
           severity: 'error',
@@ -248,8 +249,7 @@ const handleRegenerateEmbeddings = () => {
           detail: 'Embedding generation started',
           life: 3000,
         })
-        // Reload document after a delay
-        setTimeout(loadDocument, 2000)
+        // WebSocket will handle the reload automatically
       } catch (error: any) {
         toast.add({
           severity: 'error',
@@ -279,8 +279,7 @@ const handleRegenerateMetadata = () => {
           detail: 'Metadata extraction started',
           life: 3000,
         })
-        // Reload document after a delay
-        setTimeout(loadDocument, 2000)
+        // WebSocket will handle the reload automatically
       } catch (error: any) {
         toast.add({
           severity: 'error',
@@ -344,9 +343,38 @@ const isValidDate = (dateString: string | null | undefined): boolean => {
   return !isNaN(date.getTime())
 }
 
+// WebSocket event handlers
+const unsubscribers: (() => void)[] = []
+
 onMounted(() => {
   loadDocument()
   loadTags()
+
+  // Subscribe to status changes for this document
+  unsubscribers.push(
+    subscribe('document.status_changed', (event) => {
+      if (event.data.document_id === document.value?.id && document.value) {
+        document.value.processing_status = event.data.new_status
+        // Reload full document on completion
+        if (event.data.new_status.includes('complete')) {
+          loadDocument()
+        }
+      }
+    })
+  )
+
+  // Subscribe to updates
+  unsubscribers.push(
+    subscribe('document.updated', (event) => {
+      if (event.data.document_id === document.value?.id) {
+        loadDocument()
+      }
+    })
+  )
+})
+
+onBeforeUnmount(() => {
+  unsubscribers.forEach((unsub) => unsub())
 })
 </script>
 

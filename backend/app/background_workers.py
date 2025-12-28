@@ -41,11 +41,26 @@ class BackgroundWorkerManager:
         except Exception as e:
             logger.error(f"IMAP watcher error: {e}", exc_info=True)
 
+    async def start_websocket_broadcaster(self):
+        """Start WebSocket event broadcaster."""
+        from app.services.websocket_broadcaster import start_broadcaster
+
+        logger.info("Starting WebSocket broadcaster...")
+        try:
+            await start_broadcaster()
+        except Exception as e:
+            logger.error(f"WebSocket broadcaster error: {e}", exc_info=True)
+
     async def start_all(self):
         """Start all enabled background workers."""
         # Check environment variables to see which workers to enable
         enable_directory_watcher = os.getenv("ENABLE_DIRECTORY_WATCHER", "false").lower() == "true"
         enable_imap_watcher = os.getenv("ENABLE_IMAP_WATCHER", "false").lower() == "true"
+
+        # Always start WebSocket broadcaster
+        task = asyncio.create_task(self.start_websocket_broadcaster())
+        self.tasks.append(task)
+        logger.info("WebSocket broadcaster enabled and started")
 
         if enable_directory_watcher:
             task = asyncio.create_task(self.start_directory_watcher())
@@ -57,8 +72,8 @@ class BackgroundWorkerManager:
             self.tasks.append(task)
             logger.info("IMAP watcher enabled and started")
 
-        if not self.tasks:
-            logger.info("No background workers enabled")
+        if len(self.tasks) == 1:  # Only WebSocket broadcaster
+            logger.info("Only WebSocket broadcaster enabled")
 
     async def stop_all(self):
         """Stop all background workers."""

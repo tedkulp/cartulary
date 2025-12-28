@@ -201,14 +201,18 @@ class PermissionService:
             SQLAlchemy query object
         """
         from sqlalchemy import or_
+        from sqlalchemy.orm import joinedload
+
+        from sqlalchemy.orm import selectinload
 
         # Superusers see all documents
         if user.is_superuser:
-            return self.db.query(Document)
+            return self.db.query(Document).options(selectinload(Document.tags))
 
         # Get documents where user is owner, document is public, or document is shared with user
         return (
             self.db.query(Document)
+            .options(selectinload(Document.tags))
             .outerjoin(DocumentShare, Document.id == DocumentShare.document_id)
             .filter(
                 or_(
@@ -338,8 +342,12 @@ def require_document_access(
         db: Session = Depends(get_db),
         permission_service: PermissionService = Depends(get_permission_service)
     ) -> Document:
-        # Get document
-        document = db.query(Document).filter(Document.id == document_id).first()
+        # Get document with eagerly loaded tags
+        from sqlalchemy.orm import selectinload
+
+        document = db.query(Document).options(
+            selectinload(Document.tags)
+        ).filter(Document.id == document_id).first()
 
         if not document:
             raise HTTPException(

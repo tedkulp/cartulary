@@ -41,7 +41,7 @@ const handleClear = () => {
   uploadProgress.value.clear()
 }
 
-const uploadSingleFile = async (file: File): Promise<{ success: boolean, document?: Document, error?: string }> => {
+const uploadSingleFile = async (file: File): Promise<{ success: boolean, document?: Document, error?: string, documentId?: string }> => {
   try {
     uploadProgress.value.set(file.name, { progress: 0, status: 'uploading' })
 
@@ -52,16 +52,32 @@ const uploadSingleFile = async (file: File): Promise<{ success: boolean, documen
     return { success: true, document }
   } catch (err: any) {
     let errorMessage = 'Upload failed'
+    let documentId: string | undefined
 
     if (err.response?.status === 409) {
       errorMessage = 'Already uploaded'
+      // Extract document_id from the 409 response
+      // The API returns: { error: "duplicate", message: "...", document_id: "..." }
+      documentId = err.response?.data?.detail?.document_id || err.response?.data?.document_id
+
+      // If we got the document ID, fetch the existing document and treat it as success
+      if (documentId) {
+        try {
+          const existingDoc = await documentService.get(documentId)
+          uploadProgress.value.set(file.name, { progress: 100, status: 'success' })
+          return { success: true, document: existingDoc, documentId }
+        } catch (fetchErr) {
+          console.error('Failed to fetch existing document:', fetchErr)
+          // Fall through to error handling
+        }
+      }
     } else if (err.response?.data?.detail) {
       errorMessage = err.response.data.detail
     }
 
     uploadProgress.value.set(file.name, { progress: 0, status: 'error', error: errorMessage })
 
-    return { success: false, error: errorMessage }
+    return { success: false, error: errorMessage, documentId }
   }
 }
 

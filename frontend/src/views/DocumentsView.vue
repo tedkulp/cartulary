@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -24,10 +24,12 @@ import { searchService, type SearchMode } from '@/services/searchService'
 import type { Document } from '@/types/document'
 import { highlightText } from '@/utils/textHighlight'
 import { formatDateTime } from '@/utils/dateFormat'
+import { useWebSocket } from '@/composables/useWebSocket'
 
 const router = useRouter()
 const confirm = useConfirm()
 const toast = useToast()
+const { subscribe } = useWebSocket()
 
 const documents = ref<Document[]>([])
 const loading = ref(false)
@@ -41,14 +43,50 @@ const searchModes = [
   { label: 'Keyword (Fast)', value: 'fulltext' },
 ]
 
+// Sorting state
+const sortField = ref<string>('created_at')
+const sortOrder = ref<number>(-1) // -1 for descending, 1 for ascending
+
 const hasDocuments = computed(() => documents.value.length > 0)
 const isSearching = computed(() => searchQuery.value.trim().length > 0)
+
+// Document statistics
+const totalDocuments = computed(() => documents.value.length)
+
+const totalFileSize = computed(() => {
+  const bytes = documents.value.reduce((sum, doc) => sum + (doc.file_size || 0), 0)
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+})
+
+const totalWords = computed(() => {
+  return documents.value.reduce((sum, doc) => {
+    if (doc.ocr_text) {
+      // Count words by splitting on whitespace
+      const words = doc.ocr_text.trim().split(/\s+/).filter(w => w.length > 0)
+      return sum + words.length
+    }
+    return sum
+  }, 0)
+})
+
+const averageFileSize = computed(() => {
+  if (documents.value.length === 0) return '0 B'
+  const avgBytes = documents.value.reduce((sum, doc) => sum + (doc.file_size || 0), 0) / documents.value.length
+  if (avgBytes < 1024) return `${avgBytes.toFixed(0)} B`
+  if (avgBytes < 1024 * 1024) return `${(avgBytes / 1024).toFixed(1)} KB`
+  return `${(avgBytes / (1024 * 1024)).toFixed(1)} MB`
+})
 
 const loadDocuments = async () => {
   loading.value = true
   error.value = null
   try {
-    documents.value = await documentService.list()
+    // Convert PrimeVue sort order (-1/1) to backend format (desc/asc)
+    const sortOrderStr = sortOrder.value === -1 ? 'desc' : 'asc'
+    documents.value = await documentService.list(0, 1000, sortField.value, sortOrderStr)
   } catch (err: any) {
     error.value = err.response?.data?.detail || 'Failed to load documents'
     toast.add({
@@ -163,8 +201,98 @@ const formatDate = (dateString: string): string => {
   return formatDateTime(dateString)
 }
 
+// Sorting functions
+const onSort = (event: any) => {
+  sortField.value = event.sortField
+  sortOrder.value = event.sortOrder
+  // Reload documents with new sort order
+  loadDocuments()
+}
+
+const insertDocumentSorted = (_document: Document) => {
+  // Add the new document and reload to get proper sort order from backend
+  loadDocuments()
+}
+
+// WebSocket event handlers
+const unsubscribers: (() => void)[] = []
+
 onMounted(() => {
   loadDocuments()
+
+  // Subscribe to document events
+  unsubscribers.push(
+    subscribe('document.created', async (event) => {
+      // Check if document already exists in the list
+      const exists = documents.value.some((d) => d.id === event.data.document_id)
+      if (exists) {
+        console.log('[DocumentsView] Document already in list, skipping:', event.data.document_id)
+        return
+      }
+
+      // Reload to get full document data
+      try {
+        const newDoc = await documentService.get(event.data.document_id)
+        insertDocumentSorted(newDoc)
+      } catch (error) {
+        console.error('Failed to load new document:', error)
+      }
+    })
+  )
+
+  // Subscribe to status changes
+  unsubscribers.push(
+    subscribe('document.status_changed', async (event) => {
+      const doc = documents.value.find((d) => d.id === event.data.document_id)
+      if (doc) {
+        doc.processing_status = event.data.new_status
+
+        // If status changed to llm_complete, reload the document to get tags
+        if (event.data.new_status === 'llm_complete') {
+          try {
+            const updatedDoc = await documentService.get(event.data.document_id)
+            const index = documents.value.findIndex((d) => d.id === event.data.document_id)
+            if (index !== -1) {
+              documents.value[index] = updatedDoc
+            }
+          } catch (error) {
+            console.error('Failed to reload document after LLM completion:', error)
+          }
+        }
+      }
+    })
+  )
+
+  // Subscribe to document updates (e.g., tag changes)
+  unsubscribers.push(
+    subscribe('document.updated', async (event) => {
+      console.log('[DocumentsView] Received document.updated event:', event)
+      try {
+        const updatedDoc = await documentService.get(event.data.document_id)
+        console.log('[DocumentsView] Fetched updated document:', updatedDoc)
+        const index = documents.value.findIndex((d) => d.id === event.data.document_id)
+        if (index !== -1) {
+          console.log('[DocumentsView] Replacing document at index:', index)
+          documents.value[index] = updatedDoc
+        } else {
+          console.log('[DocumentsView] Document not found in list:', event.data.document_id)
+        }
+      } catch (error) {
+        console.error('Failed to reload updated document:', error)
+      }
+    })
+  )
+
+  // Subscribe to deletions
+  unsubscribers.push(
+    subscribe('document.deleted', (event) => {
+      documents.value = documents.value.filter((d) => d.id !== event.data.document_id)
+    })
+  )
+})
+
+onBeforeUnmount(() => {
+  unsubscribers.forEach((unsub) => unsub())
 })
 </script>
 
@@ -209,6 +337,26 @@ onMounted(() => {
             </div>
           </template>
           <template #content>
+            <!-- Statistics Panel -->
+            <div v-if="hasDocuments && !initialLoading" class="mb-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div class="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg border border-surface-200 dark:border-surface-700">
+                <div class="text-sm text-muted-color mb-1">Total Documents</div>
+                <div class="text-2xl font-bold">{{ totalDocuments.toLocaleString() }}</div>
+              </div>
+              <div class="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg border border-surface-200 dark:border-surface-700">
+                <div class="text-sm text-muted-color mb-1">Total Size</div>
+                <div class="text-2xl font-bold">{{ totalFileSize }}</div>
+              </div>
+              <div class="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg border border-surface-200 dark:border-surface-700">
+                <div class="text-sm text-muted-color mb-1">Total Words</div>
+                <div class="text-2xl font-bold">{{ totalWords.toLocaleString() }}</div>
+              </div>
+              <div class="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg border border-surface-200 dark:border-surface-700">
+                <div class="text-sm text-muted-color mb-1">Avg. Size</div>
+                <div class="text-2xl font-bold">{{ averageFileSize }}</div>
+              </div>
+            </div>
+
             <!-- Search Bar -->
             <div class="mb-4">
               <IconField iconPosition="left">
@@ -294,6 +442,10 @@ onMounted(() => {
               :rows-per-page-options="[10, 25, 50]"
               current-page-report-template="Showing {first} to {last} of {totalRecords} documents"
               paginator-template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+              sort-mode="single"
+              :sort-field="sortField"
+              :sort-order="sortOrder"
+              @sort="onSort"
             >
 
               <Column field="title" header="Title" sortable>

@@ -1,7 +1,6 @@
 """Directory watcher worker for monitoring import sources."""
 import logging
 import time
-import asyncio
 from pathlib import Path
 from typing import Dict, Set
 from datetime import datetime
@@ -16,6 +15,7 @@ from app.database import SessionLocal
 from app.models.import_source import ImportSource, ImportSourceType, ImportSourceStatus
 from app.models.document import Document
 from app.tasks.document_tasks import process_document
+from app.services.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +133,9 @@ class DocumentFileHandler(FileSystemEventHandler):
             self.db.commit()
 
             logger.info(f"Created document {document_id} from {filename}")
+
+            # Notify document creation
+            notification_service.notify_document_created_sync(document_id, source.owner_id)
 
             # Queue processing task
             process_document.delay(str(document_id))
