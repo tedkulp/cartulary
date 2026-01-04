@@ -21,7 +21,7 @@ export interface TagUpdate {
 }
 
 export const tagService = {
-  async list(skip = 0, limit = 100): Promise<Tag[]> {
+  async list(skip = 0, limit = 10000): Promise<Tag[]> {
     const { data } = await api.get<Tag[]>('/api/v1/tags', {
       params: { skip, limit },
     })

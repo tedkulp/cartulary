@@ -86,7 +86,7 @@ class LLMService:
         raise ValueError(f"Unsupported LLM provider: {self.provider}")
 
     def extract_metadata(
-        self, text: str, filename: Optional[str] = None
+        self, text: str, filename: Optional[str] = None, existing_tags: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Extract metadata from document text using LLM.
@@ -94,6 +94,7 @@ class LLMService:
         Args:
             text: Document text (OCR'd or extracted)
             filename: Original filename (optional, provides context)
+            existing_tags: List of existing tag names to prefer (optional)
 
         Returns:
             Dictionary containing extracted metadata:
@@ -106,7 +107,7 @@ class LLMService:
                 "suggested_tags": List[str]
             }
         """
-        prompt = self._build_extraction_prompt(text, filename)
+        prompt = self._build_extraction_prompt(text, filename, existing_tags)
 
         try:
             response_text = self._call_llm(prompt)
@@ -118,7 +119,7 @@ class LLMService:
             return self._get_empty_metadata()
 
     def _build_extraction_prompt(
-        self, text: str, filename: Optional[str] = None
+        self, text: str, filename: Optional[str] = None, existing_tags: Optional[List[str]] = None
     ) -> str:
         """Build prompt for metadata extraction."""
         # Truncate text if too long (keep first 4000 chars for context)
@@ -132,6 +133,9 @@ Document text:
 
         if filename:
             prompt += f"\nOriginal filename: {filename}\n"
+
+        if existing_tags and len(existing_tags) > 0:
+            prompt += f"\nExisting tags in the system: {', '.join(existing_tags)}\n"
 
         prompt += """
 Please extract the following information and respond ONLY with a valid JSON object (no markdown, no explanation):
@@ -148,7 +152,12 @@ Please extract the following information and respond ONLY with a valid JSON obje
 Guidelines:
 - Use "Unknown" if information cannot be determined
 - For document_date, use null if no date is found
-- Suggest 3-5 relevant tags based on content
+- For summary: If the document is primarily about one specific person (e.g., birth certificate, death certificate, medical record, diploma), include that person's full name in the summary. For example: "Birth certificate for John Smith, born January 15, 1990"
+- For suggested_tags:
+  * Suggest 3-5 relevant tags based on content
+  * IMPORTANT: If any of the existing tags listed above are absolutely relevant to this document, use those exact tag names
+  * Only suggest new tags if the existing tags are not relevant or if additional categorization would be helpful
+  * Prefer existing tags when they accurately describe the document's content, subject, or category
 - Keep responses concise and factual
 - Return ONLY the JSON object, nothing else
 """

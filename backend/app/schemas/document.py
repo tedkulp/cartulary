@@ -26,6 +26,7 @@ class DocumentUpdate(BaseModel):
 
     title: Optional[str] = Field(None, min_length=1, max_length=500)
     description: Optional[str] = None
+    is_public: Optional[bool] = None
 
 
 class DocumentResponse(DocumentBase):
@@ -47,8 +48,9 @@ class DocumentResponse(DocumentBase):
     # LLM-extracted metadata
     extracted_title: Optional[str] = None
     extracted_date: Optional[datetime] = None
-    extracted_sender: Optional[str] = None
-    extracted_recipient: Optional[str] = None
+    extracted_correspondent: Optional[str] = None
+    extracted_document_type: Optional[str] = None
+    extracted_summary: Optional[str] = None
 
     @computed_field
     @property

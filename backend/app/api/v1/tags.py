@@ -183,9 +183,11 @@ async def add_tags_to_document(
         )
 
     # Add tags to document
+    tags_added = False
     for tag in tags:
         if tag not in document.tags:
             document.tags.append(tag)
+            tags_added = True
 
     db.commit()
 
@@ -200,6 +202,12 @@ async def add_tags_to_document(
         logger.info("Successfully notified document update")
     except Exception as e:
         logger.error(f"Failed to notify document update: {e}", exc_info=True)
+
+    # Trigger re-embedding if tags were added and document has embeddings
+    if tags_added and document.processing_status in ['embedding_complete', 'llm_complete']:
+        from app.tasks.document_tasks import generate_embeddings
+        logger.info(f"Triggering re-embedding for document {document_id} due to tag addition")
+        generate_embeddings.delay(str(document_id))
 
     return {"message": "Tags added successfully", "tag_count": len(tags)}
 
@@ -231,8 +239,10 @@ async def remove_tag_from_document(
         raise NotFoundError("Tag not found")
 
     # Remove tag from document
+    tag_removed = False
     if tag in document.tags:
         document.tags.remove(tag)
+        tag_removed = True
         db.commit()
 
         # Notify about document update
@@ -245,3 +255,9 @@ async def remove_tag_from_document(
             logger.info("Successfully notified document update (tag removed)")
         except Exception as e:
             logger.error(f"Failed to notify document update (tag removed): {e}", exc_info=True)
+
+        # Trigger re-embedding if tag was removed and document has embeddings
+        if tag_removed and document.processing_status in ['embedding_complete', 'llm_complete']:
+            from app.tasks.document_tasks import generate_embeddings
+            logger.info(f"Triggering re-embedding for document {document_id} due to tag removal")
+            generate_embeddings.delay(str(document_id))

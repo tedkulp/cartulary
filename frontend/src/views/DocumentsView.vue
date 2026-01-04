@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -9,6 +9,7 @@ import InputText from 'primevue/inputtext'
 import IconField from 'primevue/iconfield'
 import InputIcon from 'primevue/inputicon'
 import Select from 'primevue/select'
+import MultiSelect from 'primevue/multiselect'
 import ConfirmDialog from 'primevue/confirmdialog'
 import { useConfirm } from 'primevue/useconfirm'
 import { useToast } from 'primevue/usetoast'
@@ -21,17 +22,20 @@ import RecentDocumentsWidget from '@/components/RecentDocumentsWidget.vue'
 import ActivityLogWidget from '@/components/ActivityLogWidget.vue'
 import { documentService } from '@/services/documentService'
 import { searchService, type SearchMode } from '@/services/searchService'
+import { tagService, type Tag } from '@/services/tagService'
 import type { Document } from '@/types/document'
 import { highlightText } from '@/utils/textHighlight'
 import { formatDateTime } from '@/utils/dateFormat'
 import { useWebSocket } from '@/composables/useWebSocket'
 
 const router = useRouter()
+const route = useRoute()
 const confirm = useConfirm()
 const toast = useToast()
 const { subscribe } = useWebSocket()
 
 const documents = ref<Document[]>([])
+const allDocuments = ref<Document[]>([])
 const loading = ref(false)
 const initialLoading = ref(true)
 const error = ref<string | null>(null)
@@ -42,6 +46,16 @@ const searchModes = [
   { label: 'Semantic (Meaning)', value: 'semantic' },
   { label: 'Keyword (Fast)', value: 'fulltext' },
 ]
+const selectedTag = ref<Tag | null>(null)
+const filterTagId = ref<string | null>(null)
+
+// Filtering state
+const showFilters = ref(false)
+const availableTags = ref<Tag[]>([])
+const filters = ref({
+  name: '',
+  tags: [] as string[]
+})
 
 // Sorting state
 const sortField = ref<string>('created_at')
@@ -49,6 +63,12 @@ const sortOrder = ref<number>(-1) // -1 for descending, 1 for ascending
 
 const hasDocuments = computed(() => documents.value.length > 0)
 const isSearching = computed(() => searchQuery.value.trim().length > 0)
+const activeFilterCount = computed(() => {
+  let count = 0
+  if (filters.value.name.trim()) count++
+  if (filters.value.tags.length > 0) count++
+  return count
+})
 
 // Document statistics
 const totalDocuments = computed(() => documents.value.length)
@@ -86,7 +106,8 @@ const loadDocuments = async () => {
   try {
     // Convert PrimeVue sort order (-1/1) to backend format (desc/asc)
     const sortOrderStr = sortOrder.value === -1 ? 'desc' : 'asc'
-    documents.value = await documentService.list(0, 1000, sortField.value, sortOrderStr)
+    allDocuments.value = await documentService.list(0, 1000, sortField.value, sortOrderStr)
+    applyTagFilter()
   } catch (err: any) {
     error.value = err.response?.data?.detail || 'Failed to load documents'
     toast.add({
@@ -98,6 +119,62 @@ const loadDocuments = async () => {
   } finally {
     loading.value = false
     initialLoading.value = false
+  }
+}
+
+const applyTagFilter = () => {
+  let filtered = [...allDocuments.value]
+
+  // Apply legacy tag filter (from URL query param)
+  if (filterTagId.value) {
+    filtered = filtered.filter(doc =>
+      doc.tags?.some(tag => tag.id === filterTagId.value)
+    )
+  }
+
+  // Apply name filter
+  if (filters.value.name.trim()) {
+    const nameQuery = filters.value.name.toLowerCase()
+    filtered = filtered.filter(doc =>
+      doc.title.toLowerCase().includes(nameQuery) ||
+      doc.original_filename.toLowerCase().includes(nameQuery)
+    )
+  }
+
+  // Apply tags filter
+  if (filters.value.tags.length > 0) {
+    filtered = filtered.filter(doc =>
+      filters.value.tags.some(tagId =>
+        doc.tags?.some(tag => tag.id === tagId)
+      )
+    )
+  }
+
+  documents.value = filtered
+}
+
+const clearTagFilter = () => {
+  filterTagId.value = null
+  selectedTag.value = null
+  router.push({ name: 'documents' })
+  applyTagFilter()
+}
+
+const clearAllFilters = () => {
+  filters.value.name = ''
+  filters.value.tags = []
+  clearTagFilter()
+}
+
+const applyFilters = () => {
+  applyTagFilter()
+}
+
+const loadTags = async () => {
+  try {
+    availableTags.value = await tagService.list()
+  } catch (error) {
+    console.error('Failed to load tags:', error)
   }
 }
 
@@ -217,7 +294,21 @@ const insertDocumentSorted = (_document: Document) => {
 // WebSocket event handlers
 const unsubscribers: (() => void)[] = []
 
-onMounted(() => {
+onMounted(async () => {
+  // Load available tags for filter dropdown
+  await loadTags()
+
+  // Check for tag filter in query params
+  if (route.query.tag) {
+    filterTagId.value = route.query.tag as string
+    try {
+      selectedTag.value = await tagService.get(filterTagId.value)
+    } catch (error) {
+      console.error('Failed to load tag:', error)
+      filterTagId.value = null
+    }
+  }
+
   loadDocuments()
 
   // Subscribe to document events
@@ -294,6 +385,22 @@ onMounted(() => {
 onBeforeUnmount(() => {
   unsubscribers.forEach((unsub) => unsub())
 })
+
+// Watch for changes in route query params
+watch(() => route.query.tag, async (newTagId) => {
+  if (newTagId && newTagId !== filterTagId.value) {
+    filterTagId.value = newTagId as string
+    try {
+      selectedTag.value = await tagService.get(filterTagId.value)
+      applyTagFilter()
+    } catch (error) {
+      console.error('Failed to load tag:', error)
+      clearTagFilter()
+    }
+  } else if (!newTagId && filterTagId.value) {
+    clearTagFilter()
+  }
+})
 </script>
 
 <template>
@@ -354,6 +461,121 @@ onBeforeUnmount(() => {
               <div class="bg-surface-100 dark:bg-surface-800 p-4 rounded-lg border border-surface-200 dark:border-surface-700">
                 <div class="text-sm text-muted-color mb-1">Avg. Size</div>
                 <div class="text-2xl font-bold">{{ averageFileSize }}</div>
+              </div>
+            </div>
+
+            <!-- Tag Filter Banner (from URL) -->
+            <div v-if="selectedTag" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span
+                  :style="{ backgroundColor: selectedTag.color || '#6366f1' }"
+                  class="w-4 h-4 rounded"
+                ></span>
+                <span class="font-medium">Filtering by tag: {{ selectedTag.name }}</span>
+              </div>
+              <Button
+                label="Clear Filter"
+                icon="pi pi-times"
+                @click="clearTagFilter"
+                severity="secondary"
+                size="small"
+                text
+              />
+            </div>
+
+            <!-- Filters Panel -->
+            <div class="mb-4">
+              <div class="flex items-center gap-2 mb-2">
+                <Button
+                  :label="showFilters ? 'Hide Filters' : 'Show Filters'"
+                  :icon="showFilters ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"
+                  @click="showFilters = !showFilters"
+                  severity="secondary"
+                  outlined
+                  size="small"
+                  :badge="activeFilterCount > 0 ? activeFilterCount.toString() : undefined"
+                  badge-severity="info"
+                />
+                <Button
+                  v-if="activeFilterCount > 0"
+                  label="Clear All Filters"
+                  icon="pi pi-times"
+                  @click="clearAllFilters"
+                  severity="secondary"
+                  text
+                  size="small"
+                />
+              </div>
+
+              <!-- Expandable Filter Panel -->
+              <div
+                v-if="showFilters"
+                class="p-4 bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-lg"
+              >
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- Name Filter -->
+                  <div>
+                    <label for="filter-name" class="block text-sm font-medium mb-2">
+                      Filter by Name
+                    </label>
+                    <InputText
+                      id="filter-name"
+                      v-model="filters.name"
+                      placeholder="Search in title or filename..."
+                      class="w-full"
+                      @input="applyFilters"
+                    />
+                  </div>
+
+                  <!-- Tags Filter -->
+                  <div>
+                    <label for="filter-tags" class="block text-sm font-medium mb-2">
+                      Filter by Tags
+                    </label>
+                    <MultiSelect
+                      id="filter-tags"
+                      v-model="filters.tags"
+                      :options="availableTags"
+                      optionLabel="name"
+                      optionValue="id"
+                      placeholder="Select tags..."
+                      class="w-full"
+                      @change="applyFilters"
+                      :maxSelectedLabels="3"
+                      display="chip"
+                    >
+                      <template #option="{ option }">
+                        <div class="flex items-center gap-2">
+                          <span
+                            :style="{ backgroundColor: option.color || '#6366f1' }"
+                            class="w-3 h-3 rounded"
+                          ></span>
+                          <span>{{ option.name }}</span>
+                        </div>
+                      </template>
+                      <template #chip="{ value }">
+                        <div class="flex items-center gap-1">
+                          <span
+                            :style="{ backgroundColor: availableTags.find(t => t.id === value)?.color || '#6366f1' }"
+                            class="w-3 h-3 rounded"
+                          ></span>
+                          <span>{{ availableTags.find(t => t.id === value)?.name }}</span>
+                        </div>
+                      </template>
+                    </MultiSelect>
+                  </div>
+                </div>
+
+                <!-- Filter Summary -->
+                <div v-if="activeFilterCount > 0" class="mt-4 pt-4 border-t border-surface-200 dark:border-surface-700">
+                  <div class="text-sm text-muted-color">
+                    <span class="font-medium">Active filters:</span>
+                    <span v-if="filters.name.trim()" class="ml-2">Name: "{{ filters.name }}"</span>
+                    <span v-if="filters.tags.length > 0" class="ml-2">
+                      Tags: {{ filters.tags.length }} selected
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -503,14 +725,16 @@ onBeforeUnmount(() => {
               <Column field="tags" header="Tags">
                 <template #body="{ data }">
                   <div class="flex flex-wrap gap-1">
-                    <span
+                    <button
                       v-for="tag in data.tags"
                       :key="tag.id"
+                      @click.stop="router.push({ name: 'documents', query: { tag: tag.id } })"
                       :style="{ backgroundColor: tag.color || '#6366f1', color: '#fff' }"
-                      class="px-2 py-1 rounded text-xs font-medium"
+                      class="px-2 py-1 rounded text-xs font-medium hover:opacity-80 cursor-pointer transition-opacity"
+                      :title="`Filter by ${tag.name}`"
                     >
                       {{ tag.name }}
-                    </span>
+                    </button>
                     <span v-if="!data.tags || data.tags.length === 0" class="text-gray-400 text-xs">
                       No tags
                     </span>

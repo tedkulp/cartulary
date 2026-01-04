@@ -31,6 +31,12 @@ class OIDCCallbackResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class OIDCTokenRequest(BaseModel):
+    """Request body for mobile OIDC token exchange."""
+    id_token: str
+    access_token: str
+
+
 class OIDCStateStore:
     """Simple in-memory state store for OIDC CSRF protection.
 
@@ -56,16 +62,22 @@ state_store = OIDCStateStore()
 
 @router.get("/config", response_model=OIDCConfigResponse)
 async def get_oidc_config():
-    """Get OIDC configuration for frontend.
+    """Get OIDC configuration for mobile apps.
 
     Returns OIDC provider information if enabled.
+    Mobile apps get the mobile client ID (public client with PKCE).
     """
     if not settings.OIDC_ENABLED:
         return OIDCConfigResponse(enabled=False)
 
+    # For mobile apps, return mobile client ID (public client, no secret required)
+    # Falls back to web client ID if mobile client ID not configured
+    mobile_client_id = settings.OIDC_MOBILE_CLIENT_ID or settings.OIDC_CLIENT_ID
+
     return OIDCConfigResponse(
         enabled=True,
-        client_id=settings.OIDC_CLIENT_ID
+        authorization_url=settings.OIDC_DISCOVERY_URL if settings.OIDC_ENABLED else None,
+        client_id=mobile_client_id
     )
 
 
@@ -149,6 +161,87 @@ async def oidc_callback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"OIDC authentication failed: {str(e)}"
+        )
+
+
+@router.post("/token", response_model=OIDCCallbackResponse)
+async def exchange_oidc_token(
+    request: OIDCTokenRequest,
+    db: Session = Depends(get_db)
+):
+    """Exchange OIDC tokens for application JWT tokens (mobile app endpoint).
+
+    Mobile apps handle the OAuth flow natively and send us the OIDC tokens
+    to exchange for our application's JWT tokens.
+    """
+    if not settings.OIDC_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="OIDC authentication is not enabled"
+        )
+
+    try:
+        logger.info(f"Attempting OIDC token exchange (mobile)")
+        logger.debug(f"ID token length: {len(request.id_token)}, Access token length: {len(request.access_token)}")
+
+        # For mobile apps, try to decode and verify the ID token directly first
+        # This is more reliable than calling userinfo with a token from a different client
+        try:
+            import jwt
+            from jwt import PyJWKClient
+
+            # Get the JWKS URL from OIDC discovery
+            metadata = await oidc_service.get_provider_metadata()
+            jwks_uri = metadata.get('jwks_uri')
+
+            if jwks_uri:
+                # Verify and decode the ID token
+                jwks_client = PyJWKClient(jwks_uri)
+                signing_key = jwks_client.get_signing_key_from_jwt(request.id_token)
+
+                userinfo = jwt.decode(
+                    request.id_token,
+                    signing_key.key,
+                    algorithms=["RS256"],
+                    audience=settings.OIDC_MOBILE_CLIENT_ID or settings.OIDC_CLIENT_ID,
+                    options={"verify_exp": True}
+                )
+                logger.info(f"Successfully decoded and verified ID token for subject: {userinfo.get('sub')}")
+            else:
+                # Fallback to userinfo endpoint
+                logger.warning("No jwks_uri found, falling back to userinfo endpoint")
+                userinfo = await oidc_service.get_userinfo(request.access_token)
+
+        except Exception as jwt_error:
+            logger.warning(f"ID token verification failed, trying userinfo endpoint: {jwt_error}")
+            # Fallback to userinfo endpoint
+            userinfo = await oidc_service.get_userinfo(request.access_token)
+
+        # Get or create user in database
+        user = oidc_service.get_or_create_user(userinfo, db)
+
+        # Create JWT tokens for our application
+        access_token = create_access_token(user.id)
+        refresh_token = create_refresh_token(user.id)
+
+        logger.info(f"OIDC token exchange successful for user: {user.email}")
+
+        return OIDCCallbackResponse(
+            access_token=access_token,
+            refresh_token=refresh_token
+        )
+
+    except Exception as e:
+        logger.error(f"OIDC token exchange failed: {e}", exc_info=True)
+
+        # Check if it's a userinfo fetch error
+        error_msg = str(e)
+        if "401" in error_msg or "Unauthorized" in error_msg:
+            logger.error("OIDC provider rejected the access token - check token validity and scopes")
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"OIDC token exchange failed: {str(e)}"
         )
 
 

@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "Cartulary",
+    "slug": "cartulary",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "scheme": "cartulary",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cartulary.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Cartulary needs camera access to capture documents",
+        "NSPhotoLibraryUsageDescription": "Cartulary needs photo library access to import documents",
+        "NSPhotoLibraryAddUsageDescription": "Cartulary needs to save processed documents to your photo library",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.cartulary.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Cartulary to access your camera to capture documents"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Cartulary to access your photos to import documents",
+          "cameraPermission": "Allow Cartulary to access your camera to capture documents"
+        }
+      ],
+      "react-native-document-scanner-plugin"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "dc0fcdfe-c79e-40b6-8e0f-82fadcd37d2f"
+      }
+    }
+  }
+}

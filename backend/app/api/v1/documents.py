@@ -302,9 +302,16 @@ async def update_document(
     db: Session = Depends(get_db)
 ) -> DocumentResponse:
     """Update document metadata (requires write access)."""
+    # Track if we need to regenerate embeddings
+    needs_reembedding = False
+
     # Update fields
     if document_update.title is not None:
         document.title = document_update.title
+        needs_reembedding = True
+    if document_update.description is not None:
+        document.description = document_update.description
+        needs_reembedding = True
     if document_update.is_public is not None:
         document.is_public = document_update.is_public
 
@@ -313,6 +320,12 @@ async def update_document(
 
     # Notify document update
     await notification_service.notify_document_updated(document.id, document.owner_id)
+
+    # Trigger re-embedding if title or description changed
+    if needs_reembedding and document.processing_status in ['embedding_complete', 'llm_complete']:
+        from app.tasks.document_tasks import generate_embeddings
+        logger.info(f"Triggering re-embedding for document {document_id} due to metadata update")
+        generate_embeddings.delay(str(document_id))
 
     return document
 

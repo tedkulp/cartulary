@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import Button from 'primevue/button'
@@ -13,6 +14,9 @@ import { useToast } from 'primevue/usetoast'
 import AppHeader from '@/components/AppHeader.vue'
 import { tagService, type Tag, type TagCreate } from '@/services/tagService'
 
+const router = useRouter()
+const route = useRoute()
+
 const confirm = useConfirm()
 const toast = useToast()
 
@@ -20,6 +24,17 @@ const tags = ref<Tag[]>([])
 const loading = ref(false)
 const showDialog = ref(false)
 const editingTag = ref<Tag | null>(null)
+const rowsPerPage = ref(25)
+
+// Pagination state - compute 'first' from URL page parameter
+const currentPage = computed(() => {
+  const page = parseInt(route.query.page as string)
+  return isNaN(page) || page < 1 ? 1 : page
+})
+
+const first = computed(() => {
+  return (currentPage.value - 1) * rowsPerPage.value
+})
 
 const tagForm = ref<TagCreate>({
   name: '',
@@ -121,6 +136,24 @@ const handleDelete = (tag: Tag) => {
   })
 }
 
+const viewDocumentsWithTag = (tag: Tag) => {
+  router.push({ name: 'documents', query: { tag: tag.id } })
+}
+
+const onPageChange = (event: any) => {
+  const newPage = event.page + 1 // PrimeVue uses 0-based page index
+  rowsPerPage.value = event.rows
+
+  // Update URL with new page number
+  router.push({
+    name: 'tags',
+    query: {
+      ...route.query,
+      page: newPage.toString()
+    }
+  })
+}
+
 onMounted(() => {
   loadTags()
 })
@@ -148,8 +181,10 @@ onMounted(() => {
           :loading="loading"
           striped-rows
           paginator
-          :rows="25"
+          :first="first"
+          :rows="rowsPerPage"
           :rows-per-page-options="[25, 50, 100]"
+          @page="onPageChange"
         >
           <template #empty>
             <div class="text-center py-8 text-gray-500">
@@ -164,7 +199,12 @@ onMounted(() => {
                   :style="{ backgroundColor: data.color || '#6366f1' }"
                   class="w-4 h-4 rounded"
                 ></span>
-                <span class="font-medium">{{ data.name }}</span>
+                <button
+                  @click="viewDocumentsWithTag(data)"
+                  class="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                >
+                  {{ data.name }}
+                </button>
               </div>
             </template>
           </Column>

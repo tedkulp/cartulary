@@ -70,6 +70,7 @@ services:
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost:5173/auth/callback}
+      - OIDC_MOBILE_CLIENT_ID=${OIDC_MOBILE_CLIENT_ID:-}
       # OCR configuration
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}

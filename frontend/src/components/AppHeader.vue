@@ -18,6 +18,7 @@ useGlobalShortcuts()
 
 // Check which page is currently active
 const isDocumentsPage = computed(() => route.path === '/' || route.path.startsWith('/documents'))
+const isTagsPage = computed(() => route.path.startsWith('/tags'))
 const isSharedPage = computed(() => route.path.startsWith('/shared'))
 const isAdminPage = computed(() => route.path.startsWith('/admin'))
 const isSettingsPage = computed(() => route.path.startsWith('/settings'))
@@ -46,6 +47,14 @@ const handleLogout = () => {
             :severity="isDocumentsPage ? undefined : 'secondary'"
             :outlined="!isDocumentsPage"
             v-tooltip.bottom="'Go to Documents (Ctrl+D)'"
+          />
+          <Button
+            label="Tags"
+            icon="pi pi-tag"
+            @click="router.push('/tags')"
+            :severity="isTagsPage ? undefined : 'secondary'"
+            :outlined="!isTagsPage"
+            v-tooltip.bottom="'Manage Tags'"
           />
           <Button
             label="Shared"

@@ -94,8 +94,9 @@ class Settings(BaseSettings):
     # OIDC (Phase 7 - Optional)
     OIDC_ENABLED: bool = False
     OIDC_DISCOVERY_URL: Optional[str] = None  # e.g., https://auth.example.com/.well-known/openid-configuration
-    OIDC_CLIENT_ID: Optional[str] = None
+    OIDC_CLIENT_ID: Optional[str] = None  # Web client (confidential - requires secret)
     OIDC_CLIENT_SECRET: Optional[str] = None
+    OIDC_MOBILE_CLIENT_ID: Optional[str] = None  # Mobile client (public - uses PKCE, no secret)
     OIDC_REDIRECT_URI: str = "http://localhost:5173/auth/callback"  # Frontend callback URL
     OIDC_SCOPES: List[str] = ["openid", "profile", "email"]
     OIDC_AUTO_PROVISION_USERS: bool = True  # Auto-create users on first OIDC login

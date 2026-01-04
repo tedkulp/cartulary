@@ -180,9 +180,9 @@ def generate_embeddings(self, document_id: str) -> dict:
 
     db: Session = SessionLocal()
     try:
-        # Get document from database using raw SQL to avoid SQLAlchemy lazy-loading issues
+        # Get document from database including metadata using raw SQL
         result = db.execute(
-            sql_text("SELECT ocr_text FROM documents WHERE id = :doc_id"),
+            sql_text("SELECT ocr_text, title, description FROM documents WHERE id = :doc_id"),
             {"doc_id": document_id}
         )
         row = result.fetchone()
@@ -192,15 +192,48 @@ def generate_embeddings(self, document_id: str) -> dict:
             return {"status": "error", "message": "Document not found"}
 
         ocr_text = row[0]
+        title = row[1]
+        description = row[2]
+
         if not ocr_text:
             logger.warning(f"No OCR text available for document {document_id}")
             return {"status": "skipped", "message": "No text to embed"}
 
+        # Get tags for this document
+        tags_result = db.execute(
+            sql_text("""
+                SELECT t.name
+                FROM tags t
+                JOIN document_tags dt ON t.id = dt.tag_id
+                WHERE dt.document_id = :doc_id
+                ORDER BY t.name
+            """),
+            {"doc_id": document_id}
+        )
+        tags = [row[0] for row in tags_result.fetchall()]
+
         # Make a plain Python string copy to avoid any SQLAlchemy proxy issues
         ocr_text_copy = str(ocr_text)
 
+        # Build enriched text with metadata
+        metadata_prefix = []
+        if title:
+            metadata_prefix.append(f"Title: {title}")
+        if tags:
+            metadata_prefix.append(f"Tags: {', '.join(tags)}")
+        if description:
+            metadata_prefix.append(f"Description: {description}")
+
+        # Combine metadata with content
+        if metadata_prefix:
+            enriched_text = "\n".join(metadata_prefix) + "\n\nContent:\n" + ocr_text_copy
+        else:
+            enriched_text = ocr_text_copy
+
+        logger.info(f"Created enriched text with metadata (title: {bool(title)}, tags: {len(tags)}, description: {bool(description)})")
+
         logger.info(f"Generating embeddings for document {document_id}")
-        logger.info(f"Document has {len(ocr_text_copy)} characters of text")
+        logger.info(f"Document has {len(enriched_text)} characters of enriched text (OCR: {len(ocr_text_copy)})")
 
         # Delete existing embeddings for this document
         db.query(DocumentEmbedding).filter(
@@ -228,9 +261,9 @@ def generate_embeddings(self, document_id: str) -> dict:
         logger.info(f"Using {settings.EMBEDDING_PROVIDER} embeddings with model {settings.EMBEDDING_MODEL} (dimension: {settings.EMBEDDING_DIMENSION})")
 
         # Chunk the text
-        logger.info(f"About to chunk text ({len(ocr_text_copy)} characters)")
-        logger.info(f"Text type: {type(ocr_text_copy)}")
-        logger.info(f"Text preview (first 100 chars): {ocr_text_copy[:100]}")
+        logger.info(f"About to chunk enriched text ({len(enriched_text)} characters)")
+        logger.info(f"Text type: {type(enriched_text)}")
+        logger.info(f"Text preview (first 100 chars): {enriched_text[:100]}")
         logger.info(f"Chunk size: {settings.EMBEDDING_CHUNK_SIZE}, overlap: {settings.EMBEDDING_CHUNK_OVERLAP}")
 
         # CRITICAL WORKAROUND: Use simplest possible chunking to avoid mysterious hangs
@@ -238,12 +271,12 @@ def generate_embeddings(self, document_id: str) -> dict:
         chunk_size = settings.EMBEDDING_CHUNK_SIZE
         chunks = []
 
-        logger.info(f"Starting loop: text length is {len(ocr_text_copy)}")
+        logger.info(f"Starting loop: text length is {len(enriched_text)}")
         i = 0
-        while i < len(ocr_text_copy):
+        while i < len(enriched_text):
             logger.info(f"Loop iteration {len(chunks)}: i={i}")
-            end = min(i + chunk_size, len(ocr_text_copy))
-            chunk = ocr_text_copy[i:end]
+            end = min(i + chunk_size, len(enriched_text))
+            chunk = enriched_text[i:end]
             chunks.append(chunk)
             i = end
             logger.info(f"Added chunk {len(chunks)}, next i={i}")
@@ -374,6 +407,11 @@ def extract_metadata(self, document_id: str):
             logger.warning(f"No OCR text available for document {document_id}")
             return {"status": "skipped", "reason": "No text content"}
 
+        # Get existing tags to help LLM prefer existing ones
+        tags_result = db.execute(sql_text("SELECT name FROM tags ORDER BY name"))
+        existing_tags = [row[0] for row in tags_result.fetchall()]
+        logger.info(f"Found {len(existing_tags)} existing tags to provide to LLM")
+
         # Initialize LLM service
         api_key = settings.OPENAI_API_KEY if settings.LLM_PROVIDER == "openai" else settings.GEMINI_API_KEY
         llm_service = LLMService(
@@ -385,17 +423,30 @@ def extract_metadata(self, document_id: str):
 
         # Extract metadata
         logger.info(f"Calling LLM for metadata extraction...")
-        metadata = llm_service.extract_metadata(ocr_text, original_filename)
+        metadata = llm_service.extract_metadata(ocr_text, original_filename, existing_tags)
         logger.info(f"Extracted metadata: {metadata}")
+
+        # Get current description
+        desc_result = db.execute(
+            sql_text("SELECT description FROM documents WHERE id = :doc_id"),
+            {"doc_id": document_id}
+        )
+        desc_row = desc_result.fetchone()
+        current_description = str(desc_row[0]) if desc_row and desc_row[0] else ""
 
         # Update document with extracted metadata using raw SQL
         updates = []
         params = {"doc_id": document_id}
 
-        # Only update title if current title is the filename
-        if current_title == original_filename and metadata.get("title") != "Unknown":
+        # Update extracted_title field
+        if metadata.get("title") and metadata["title"] != "Unknown":
             updates.append("extracted_title = :extracted_title")
             params["extracted_title"] = metadata["title"]
+
+            # If current title is the filename, also update the main title field
+            if current_title == original_filename:
+                updates.append("title = :title")
+                params["title"] = metadata["title"]
 
         if metadata.get("correspondent") and metadata["correspondent"] != "Unknown":
             updates.append("extracted_correspondent = :correspondent")
@@ -412,6 +463,11 @@ def extract_metadata(self, document_id: str):
         if metadata.get("summary"):
             updates.append("extracted_summary = :summary")
             params["summary"] = metadata["summary"]
+
+            # If description is empty, copy summary to description
+            if not current_description or current_description.strip() == "":
+                updates.append("description = :description")
+                params["description"] = metadata["summary"]
 
         # Update processing status
         updates.append("processing_status = 'llm_complete'")
