@@ -80,7 +80,8 @@ jobs:
         run: pnpm --filter @cartulary/shared build
 
       - name: Run frontend type check
-        run: pnpm --filter @cartulary/web type-check
+        working-directory: apps/web
+        run: pnpm type-check
 
   # Build and push Docker images
   build:
