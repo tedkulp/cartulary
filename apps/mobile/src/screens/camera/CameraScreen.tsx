@@ -36,11 +36,12 @@ export default function CameraScreen() {
       setIsProcessing(true);
 
       // Launch document scanner with edge detection
+      // Note: Library TypeScript definitions are incomplete, casting to any
       const { scannedImages } = await DocumentScanner.scanDocument({
         maxNumDocuments: 5, // Allow scanning multiple pages
         letUserAdjustCrop: true, // Allow manual adjustment of detected edges
         responseType: 'imageFilePath',
-      });
+      } as any);
 
       if (scannedImages && scannedImages.length > 0) {
         // The scanner returns processed images with perspective correction
