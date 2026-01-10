@@ -35,19 +35,11 @@ services:
       - cartulary-network
 
   backend:
-    build:
-      context: ./apps/backend
-      dockerfile: Dockerfile
+    image: ghcr.io/tedkulp/cartulary-backend:latest
     container_name: cartulary-backend
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
-      - ./apps/backend:/app
       - ./document_storage:/data/documents
       - ./import_watch:/data/import_watch
-    # Backend is not exposed to host - access via frontend proxy on port 8080
-    # Uncomment below for direct backend access during debugging:
-    # ports:
-    #   - "8000:8000"
     environment:
       - RUN_MIGRATIONS=true
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
@@ -55,8 +47,8 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-      - DEBUG=true
-      - BACKEND_CORS_ORIGINS=["http://localhost:8080"]
+      - DEBUG=false
+      - BACKEND_CORS_ORIGINS=["http://localhost"]
       - EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-false}
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
@@ -71,7 +63,7 @@ services:
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
-      - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost:8080/auth/callback}
+      - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost/auth/callback}
       - OIDC_MOBILE_CLIENT_ID=${OIDC_MOBILE_CLIENT_ID:-}
       # OCR configuration
       - OCR_ENABLED=${OCR_ENABLED:-false}
@@ -89,17 +81,9 @@ services:
       - cartulary-network
 
   celery_worker:
-    build:
-      context: ./apps/backend
-      dockerfile: Dockerfile.paddleocr
+    image: ghcr.io/tedkulp/cartulary-celery-worker:latest
     container_name: cartulary-celery-worker
-    # Run both worker and beat in the same container
-    # Limit concurrency to 2 workers to reduce memory usage
-    command: >
-      sh -c "celery -A app.tasks.celery_app beat --loglevel=info --detach &&
-             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=10"
     volumes:
-      - ./apps/backend:/app
       - ./document_storage:/data/documents
     environment:
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
@@ -135,16 +119,10 @@ services:
       - cartulary-network
 
   frontend:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-      target: development
+    image: ghcr.io/tedkulp/cartulary-web:latest
     container_name: cartulary-frontend
     ports:
-      - "8080:8080"
-    environment:
-      # Configure Vite dev server proxy to reach backend container
-      - VITE_PROXY_TARGET=http://backend:8000
+      - "80:80"
     networks:
       - cartulary-network
     depends_on:

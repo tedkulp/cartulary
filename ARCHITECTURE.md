@@ -26,9 +26,10 @@ Cartulary uses a **consolidated container architecture** for simplicity and reso
    - Scheduled tasks (periodic cleanup, etc.)
    - Both worker and beat scheduler run in same container
 
-5. **`cartulary-frontend`** - Vue 3 development server
-   - Development only (production serves static files from nginx/CDN)
-   - Runs on port 5173
+5. **`cartulary-frontend`** - React development server
+   - Development only (production serves static files from nginx)
+   - Runs on port 8080
+   - Proxies API requests to backend (not exposed to host)
 
 ### Previous Architecture (8 containers)
 

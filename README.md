@@ -80,9 +80,45 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
    ```
 
 6. **Access the application**:
-   - Frontend: http://localhost:5173
-   - Backend API: http://localhost:8000
-   - API Documentation: http://localhost:8000/api/v1/docs
+   - Frontend: http://localhost:8080
+   - API Documentation: http://localhost:8080/api/v1/docs
+
+## Docker Images
+
+Pre-built multi-architecture Docker images are available from GitHub Container Registry:
+
+### Pull Images
+
+```bash
+# Latest (main branch)
+docker pull ghcr.io/tedkulp/cartulary-backend:latest
+docker pull ghcr.io/tedkulp/cartulary-celery-worker:latest
+docker pull ghcr.io/tedkulp/cartulary-web:latest
+
+# Specific version
+docker pull ghcr.io/tedkulp/cartulary-backend:0.7.0
+
+# Specific commit (for debugging)
+docker pull ghcr.io/tedkulp/cartulary-backend:main-136e1e8
+```
+
+### Supported Architectures
+
+- **linux/amd64** (x86_64)
+- **linux/arm64** (ARM64/aarch64, including Apple Silicon)
+
+### Production Deployment
+
+Use the production docker-compose file with pre-built images:
+
+```bash
+# Pull latest images and start
+docker-compose -f docker-compose.prod.yml up -d
+
+# Or specify a version
+docker-compose -f docker-compose.prod.yml pull
+docker-compose -f docker-compose.prod.yml up -d
+```
 
 ## Development Setup
 
