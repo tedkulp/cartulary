@@ -142,9 +142,15 @@ services:
     container_name: cartulary-frontend
     ports:
       - "8080:8080"
+    volumes:
+      # Mount source files for hot reload
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
+      - ./packages/shared/src:/app/packages/shared/src
     environment:
       # Configure Vite dev server proxy to reach backend container
       - VITE_PROXY_TARGET=http://backend:8000
+      - VITE_DOCKER=true
     networks:
       - cartulary-network
     depends_on:

@@ -12,18 +12,27 @@ export default function OIDCCallback() {
   const fetchCurrentUser = useAuthStore((state) => state.fetchCurrentUser)
 
   useEffect(() => {
+    const code = searchParams.get('code')
+    const state = searchParams.get('state')
+
+    if (!code) {
+      const errorMsg = 'No authorization code received'
+      setError(errorMsg)
+      toast.error(errorMsg)
+      setTimeout(() => navigate('/login'), 2000)
+      return
+    }
+
+    // Prevent double-processing in React StrictMode
+    // Check synchronously BEFORE any async work to avoid race conditions
+    const processedKey = `oidc_processed_${code}`
+    if (sessionStorage.getItem(processedKey)) {
+      return
+    }
+    sessionStorage.setItem(processedKey, 'true')
+
     const handleCallback = async () => {
-      const code = searchParams.get('code')
-      const state = searchParams.get('state')
-
-      if (!code) {
-        const errorMsg = 'No authorization code received'
-        setError(errorMsg)
-        toast.error(errorMsg)
-        setTimeout(() => navigate('/login'), 2000)
-        return
-      }
-
+      console.log('handleCallback')
       try {
         const tokens = await authService.handleOIDCCallback(code, state || '')
 
@@ -43,6 +52,8 @@ export default function OIDCCallback() {
         // Redirect to home
         navigate('/')
       } catch (err: any) {
+        // Clear the processed flag on error so user can retry
+        sessionStorage.removeItem(processedKey)
         const errorMsg = err.response?.data?.detail || 'OIDC authentication failed'
         setError(errorMsg)
         toast.error(errorMsg)

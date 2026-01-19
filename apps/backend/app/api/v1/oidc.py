@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import redis
 
 from app.database import get_db
 from app.config import settings
@@ -38,23 +39,41 @@ class OIDCTokenRequest(BaseModel):
 
 
 class OIDCStateStore:
-    """Simple in-memory state store for OIDC CSRF protection.
+    """Redis-based state store for OIDC CSRF protection.
 
-    In production, use Redis or database for distributed systems.
+    Stores state tokens in Redis with TTL for automatic cleanup.
+    Works across container restarts and multiple workers.
     """
 
+    STATE_PREFIX = "oidc:state:"
+    STATE_TTL = 600  # 10 minutes
+
     def __init__(self):
-        self._states: dict[str, bool] = {}
+        self._redis: Optional[redis.Redis] = None
+
+    def _get_redis(self) -> redis.Redis:
+        """Lazy initialization of Redis connection."""
+        if self._redis is None:
+            self._redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
+        return self._redis
 
     def create_state(self) -> str:
-        """Create a new state token."""
+        """Create a new state token and store in Redis."""
         state = secrets.token_urlsafe(32)
-        self._states[state] = True
+        key = f"{self.STATE_PREFIX}{state}"
+        self._get_redis().setex(key, self.STATE_TTL, "1")
+        logger.debug(f"Created OIDC state token: {state[:8]}...")
         return state
 
     def verify_state(self, state: str) -> bool:
-        """Verify and consume a state token."""
-        return self._states.pop(state, False)
+        """Verify and consume a state token (atomic operation)."""
+        key = f"{self.STATE_PREFIX}{state}"
+        # Use DELETE which returns the number of keys deleted (1 if existed, 0 if not)
+        # This is atomic - only one request can successfully delete the key
+        deleted = self._get_redis().delete(key)
+        result = deleted > 0
+        logger.debug(f"Verified OIDC state token: {state[:8]}... = {result}")
+        return result
 
 
 state_store = OIDCStateStore()

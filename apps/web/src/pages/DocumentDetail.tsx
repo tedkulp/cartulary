@@ -60,6 +60,7 @@ export default function DocumentDetail() {
   const {
     document,
     loading,
+    fetchDocument,
     updateDocument,
     addTags,
     removeTag,
@@ -152,7 +153,7 @@ export default function DocumentDetail() {
     unsubscribers.push(
       subscribe('document.status_changed', (event) => {
         if (event.data.document_id === document.id) {
-          // Will be handled by the hook's auto-refresh
+          fetchDocument()
         }
       })
     )
@@ -161,7 +162,7 @@ export default function DocumentDetail() {
     unsubscribers.push(
       subscribe('document.updated', (event) => {
         if (event.data.document_id === document.id) {
-          // Will be handled by the hook's auto-refresh
+          fetchDocument()
         }
       })
     )
@@ -169,7 +170,7 @@ export default function DocumentDetail() {
     return () => {
       unsubscribers.forEach(unsub => unsub())
     }
-  }, [subscribe, document])
+  }, [subscribe, document, fetchDocument])
 
   const handleSaveTitle = async () => {
     try {
@@ -547,7 +548,7 @@ export default function DocumentDetail() {
               <div>
                 <p className="text-sm text-muted-foreground">Document Date</p>
                 <p className="font-medium">
-                  {new Date(document.extracted_date).toLocaleDateString()}
+                  {new Date(document.extracted_date + 'T12:00:00').toLocaleDateString()}
                 </p>
               </div>
             )}

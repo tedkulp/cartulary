@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { userService } from '../services'
-import type { User, Role, Permission, UserCreate, RoleCreate } from '@cartulary/shared'
+import type { User, Role, Permission, UserCreate } from '@cartulary/shared'
 import { toast } from 'sonner'
 import {
   Users,
@@ -9,7 +9,6 @@ import {
   UserPlus,
   Trash2,
   UserCog,
-  Plus,
   Loader2,
   CheckCircle2,
   XCircle,
@@ -44,7 +43,6 @@ import {
 } from '@/components/ui/table'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -58,14 +56,11 @@ export default function AdminPage() {
 
   // Dialog states
   const [userDialog, setUserDialog] = useState(false)
-  const [roleDialog, setRoleDialog] = useState(false)
   const [assignRoleDialog, setAssignRoleDialog] = useState(false)
   const [deleteUserDialog, setDeleteUserDialog] = useState(false)
-  const [deleteRoleDialog, setDeleteRoleDialog] = useState(false)
 
   // Selected items
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const [selectedRoles, setSelectedRoles] = useState<string[]>([])
 
   // Form states
@@ -77,10 +72,6 @@ export default function AdminPage() {
     is_superuser: false,
   })
 
-  const [roleForm, setRoleForm] = useState<RoleCreate>({
-    name: '',
-    description: '',
-  })
 
   // Statistics
   const statistics = useMemo(
@@ -156,45 +147,6 @@ export default function AdminPage() {
       await loadData()
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to delete user')
-    }
-  }
-
-  // Role management
-  const openRoleDialog = () => {
-    setRoleForm({
-      name: '',
-      description: '',
-    })
-    setRoleDialog(true)
-  }
-
-  const createRole = async () => {
-    try {
-      await userService.createRole(roleForm)
-      toast.success('Role created successfully')
-      setRoleDialog(false)
-      await loadData()
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to create role')
-    }
-  }
-
-  const handleDeleteRoleClick = (role: Role) => {
-    setSelectedRole(role)
-    setDeleteRoleDialog(true)
-  }
-
-  const deleteRole = async () => {
-    if (!selectedRole) return
-
-    try {
-      await userService.deleteRole(selectedRole.id)
-      toast.success('Role deleted successfully')
-      setDeleteRoleDialog(false)
-      setSelectedRole(null)
-      await loadData()
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to delete role')
     }
   }
 
@@ -409,21 +361,15 @@ export default function AdminPage() {
             <TabsContent value="roles">
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle>Roles</CardTitle>
-                      <CardDescription>Create and manage user roles</CardDescription>
-                    </div>
-                    <Button onClick={openRoleDialog}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create Role
-                    </Button>
-                  </div>
+                  <CardTitle>Roles</CardTitle>
+                  <CardDescription>
+                    View available roles. Role management with permissions will be available in a future update.
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {roles.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
-                      No roles yet. Create your first role to organize permissions.
+                      No roles defined yet.
                     </div>
                   ) : (
                     <div className="rounded-md border">
@@ -432,7 +378,6 @@ export default function AdminPage() {
                           <TableRow>
                             <TableHead>Name</TableHead>
                             <TableHead>Description</TableHead>
-                            <TableHead>Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -440,15 +385,6 @@ export default function AdminPage() {
                             <TableRow key={role.id}>
                               <TableCell className="font-medium">{role.name}</TableCell>
                               <TableCell>{role.description || '-'}</TableCell>
-                              <TableCell>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDeleteRoleClick(role)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -577,48 +513,6 @@ export default function AdminPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Create Role Dialog */}
-      <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create Role</DialogTitle>
-            <DialogDescription>Create a new role for organizing permissions</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="role_name">Name</Label>
-              <Input
-                id="role_name"
-                value={roleForm.name}
-                onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
-                placeholder="Editor"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="role_description">Description</Label>
-              <Textarea
-                id="role_description"
-                value={roleForm.description || ''}
-                onChange={(e) => setRoleForm({ ...roleForm, description: e.target.value })}
-                rows={3}
-                placeholder="Can edit documents..."
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRoleDialog(false)}>
-              Cancel
-            </Button>
-            <Button onClick={createRole} disabled={!roleForm.name}>
-              Create
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Assign Roles Dialog */}
       <Dialog open={assignRoleDialog} onOpenChange={setAssignRoleDialog}>
         <DialogContent>
@@ -676,22 +570,6 @@ export default function AdminPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Role Dialog */}
-      <AlertDialog open={deleteRoleDialog} onOpenChange={setDeleteRoleDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Delete</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete role <strong>{selectedRole?.name}</strong>? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSelectedRole(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={deleteRole}>Delete</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

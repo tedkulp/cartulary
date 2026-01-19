@@ -16,6 +16,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import {
   Table,
   TableBody,
   TableCell,
@@ -43,8 +48,13 @@ import {
   Filter,
   Loader2,
   FileText,
+  RotateCcw,
+  Sparkles,
+  Brain,
+  HelpCircle,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Checkbox } from '@/components/ui/checkbox'
 import UploadDialog from '@/components/UploadDialog'
 
 // Helper function moved outside component for better performance
@@ -84,6 +94,11 @@ export default function DocumentsList() {
 
   // Upload dialog state
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+
+  // Selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false)
+  const [bulkActionLoading, setBulkActionLoading] = useState(false)
 
   // WebSocket
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated())
@@ -288,6 +303,89 @@ export default function DocumentsList() {
     }
   }, [documentToDelete, deleteDocument])
 
+  // Selection handlers
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === displayedDocuments.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(displayedDocuments.map(d => d.id)))
+    }
+  }, [selectedIds.size, displayedDocuments])
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+  }, [])
+
+  const isAllSelected = displayedDocuments.length > 0 && selectedIds.size === displayedDocuments.length
+  const isPartiallySelected = selectedIds.size > 0 && selectedIds.size < displayedDocuments.length
+
+  // Bulk action handlers
+  const handleBulkDelete = useCallback(async () => {
+    setBulkActionLoading(true)
+    try {
+      const deletePromises = Array.from(selectedIds).map(id => deleteDocument(id))
+      await Promise.all(deletePromises)
+      toast.success(`Deleted ${selectedIds.size} document(s)`)
+      setSelectedIds(new Set())
+      setBulkDeleteDialogOpen(false)
+    } catch (error) {
+      toast.error('Failed to delete some documents')
+    } finally {
+      setBulkActionLoading(false)
+    }
+  }, [selectedIds, deleteDocument])
+
+  const handleBulkReprocess = useCallback(async () => {
+    setBulkActionLoading(true)
+    try {
+      const promises = Array.from(selectedIds).map(id => documentService.reprocess(id))
+      await Promise.all(promises)
+      toast.success(`Reprocessing ${selectedIds.size} document(s)`)
+    } catch (error) {
+      toast.error('Failed to reprocess some documents')
+    } finally {
+      setBulkActionLoading(false)
+    }
+  }, [selectedIds])
+
+  const handleBulkRegenerateEmbeddings = useCallback(async () => {
+    setBulkActionLoading(true)
+    try {
+      const promises = Array.from(selectedIds).map(id => documentService.regenerateEmbeddings(id))
+      await Promise.all(promises)
+      toast.success(`Regenerating embeddings for ${selectedIds.size} document(s)`)
+    } catch (error) {
+      toast.error('Failed to regenerate embeddings for some documents')
+    } finally {
+      setBulkActionLoading(false)
+    }
+  }, [selectedIds])
+
+  const handleBulkRegenerateMetadata = useCallback(async () => {
+    setBulkActionLoading(true)
+    try {
+      const promises = Array.from(selectedIds).map(id => documentService.regenerateMetadata(id))
+      await Promise.all(promises)
+      toast.success(`Regenerating metadata for ${selectedIds.size} document(s)`)
+    } catch (error) {
+      toast.error('Failed to regenerate metadata for some documents')
+    } finally {
+      setBulkActionLoading(false)
+    }
+  }, [selectedIds])
+
   const getStatusColor = useCallback((status: string) => {
     switch (status) {
       case 'pending':
@@ -467,16 +565,41 @@ export default function DocumentsList() {
                   className="pl-9"
                 />
               </div>
-              <Select value={searchMode} onValueChange={(v) => setSearchMode(v as SearchMode)}>
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="hybrid">Hybrid (Best)</SelectItem>
-                  <SelectItem value="semantic">Semantic (Meaning)</SelectItem>
-                  <SelectItem value="fulltext">Keyword (Fast)</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-1">
+                <Select value={searchMode} onValueChange={(v) => setSearchMode(v as SearchMode)}>
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="hybrid">Hybrid (Best)</SelectItem>
+                    <SelectItem value="semantic">Semantic (Meaning)</SelectItem>
+                    <SelectItem value="fulltext">Keyword (Fast)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="p-1 text-muted-foreground hover:text-foreground rounded-md hover:bg-accent transition-colors">
+                      <HelpCircle className="h-4 w-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="space-y-3">
+                      <h4 className="font-medium">Search Modes</h4>
+                      <div className="space-y-2 text-sm text-muted-foreground">
+                        <div>
+                          <span className="font-medium text-foreground">Hybrid</span> — Combines keyword and semantic search for best results. Documents matching your exact words AND related concepts are ranked together.
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground">Semantic</span> — Finds documents by meaning, not just keywords. Great for finding related content even if exact words don't match.
+                        </div>
+                        <div>
+                          <span className="font-medium text-foreground">Keyword</span> — Traditional text search. Fast and precise for finding exact words or phrases.
+                        </div>
+                      </div>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              </div>
               <Button onClick={performSearch} disabled={isSearching}>
                 {isSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               </Button>
@@ -487,6 +610,74 @@ export default function DocumentsList() {
               )}
             </div>
           </div>
+
+          {/* Bulk Action Toolbar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between p-3 bg-muted rounded-md">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium">
+                  {selectedIds.size} document{selectedIds.size !== 1 ? 's' : ''} selected
+                </span>
+                <Button variant="ghost" size="sm" onClick={clearSelection}>
+                  Clear
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkReprocess}
+                  disabled={bulkActionLoading}
+                >
+                  {bulkActionLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Reprocess
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkRegenerateEmbeddings}
+                  disabled={bulkActionLoading}
+                >
+                  {bulkActionLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Brain className="mr-2 h-4 w-4" />
+                  )}
+                  Regenerate Embeddings
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkRegenerateMetadata}
+                  disabled={bulkActionLoading}
+                >
+                  {bulkActionLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-2 h-4 w-4" />
+                  )}
+                  Regenerate Metadata
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setBulkDeleteDialogOpen(true)}
+                  disabled={bulkActionLoading}
+                >
+                  {bulkActionLoading ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Empty State */}
           {displayedDocuments.length === 0 && !loading && (
@@ -514,6 +705,13 @@ export default function DocumentsList() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={isPartiallySelected ? 'indeterminate' : isAllSelected}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
                     <TableHead
                       className="cursor-pointer select-none"
                       onClick={() => handleSort('title')}
@@ -566,9 +764,16 @@ export default function DocumentsList() {
                   {displayedDocuments.map((doc) => (
                     <TableRow
                       key={doc.id}
-                      className="cursor-pointer"
+                      className={`cursor-pointer ${selectedIds.has(doc.id) ? 'bg-muted/50' : ''}`}
                       onClick={() => navigate(`/documents/${doc.id}`)}
                     >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(doc.id)}
+                          onCheckedChange={() => toggleSelect(doc.id)}
+                          aria-label={`Select ${doc.title}`}
+                        />
+                      </TableCell>
                       <TableCell>
                         <div>
                           <div className="font-medium text-primary hover:underline">
@@ -581,7 +786,7 @@ export default function DocumentsList() {
                       </TableCell>
                       <TableCell>{formatFileSize(doc.file_size)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={getStatusColor(doc.processing_status)}>
+                        <Badge variant="outline-nowrap" className={getStatusColor(doc.processing_status)}>
                           {formatStatus(doc.processing_status)}
                         </Badge>
                       </TableCell>
@@ -647,12 +852,41 @@ export default function DocumentsList() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={bulkDeleteDialogOpen} onOpenChange={setBulkDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedIds.size} Document{selectedIds.size !== 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedIds.size} document{selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkActionLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-destructive hover:bg-destructive/90"
+              disabled={bulkActionLoading}
+            >
+              {bulkActionLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Upload Dialog */}
       <UploadDialog
         open={uploadDialogOpen}
         onOpenChange={setUploadDialogOpen}
         onUploadComplete={fetchDocuments}
       />
-    </div>
+    </div >
   )
 }

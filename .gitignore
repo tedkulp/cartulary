@@ -80,3 +80,5 @@ alembic/versions/__pycache__/
 
 # Celery
 backend/celerybeat-schedule
+
+.turbo

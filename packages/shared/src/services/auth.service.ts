@@ -11,7 +11,7 @@ export interface OIDCConfig {
  * Authentication service with dependency injection
  */
 export class AuthService {
-  constructor(private api: AxiosInstance) {}
+  constructor(private api: AxiosInstance) { }
 
   async register(data: RegisterData): Promise<User> {
     const response = await this.api.post<User>('/api/v1/auth/register', data)
@@ -56,6 +56,8 @@ export class AuthService {
   }
 
   async handleOIDCCallback(code: string, state: string): Promise<TokenResponse> {
+    console.log('handleOIDCCallback')
+
     const response = await this.api.get<TokenResponse>('/api/v1/auth/oidc/callback', {
       params: { code, state }
     })
