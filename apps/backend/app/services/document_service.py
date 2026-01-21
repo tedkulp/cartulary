@@ -70,8 +70,8 @@ class DocumentService:
         # Get filename
         filename = file.filename or "document"
 
-        # Save file to storage
-        file_path = await self.storage.save_file(file, document_id, filename)
+        # Save file to storage (images are automatically converted to PDF)
+        file_path, final_filename, mime_type = await self.storage.save_file(file, document_id, filename)
 
         # Get file size
         file_size = self.storage.get_file_size(file_path)
@@ -80,10 +80,10 @@ class DocumentService:
         db_document = Document(
             id=document_id,
             title=doc_title,
-            original_filename=filename,
+            original_filename=filename,  # Keep original filename for user reference
             file_path=file_path,
             file_size=file_size,
-            mime_type=file.content_type or "application/octet-stream",
+            mime_type=mime_type,  # Use the actual MIME type (will be application/pdf for converted images)
             checksum=checksum,
             owner_id=user_id,
             uploaded_by=user_id,  # Track who uploaded the file

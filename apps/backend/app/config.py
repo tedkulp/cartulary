@@ -61,6 +61,7 @@ class Settings(BaseSettings):
 
     # OCR (Phase 2)
     OCR_ENABLED: bool = False
+    OCR_PROVIDER: str = "auto"  # auto, paddleocr, easyocr (auto defaults to paddleocr on x86/ARM detection)
     OCR_LANGUAGES: List[str] = ["en"]
     OCR_USE_GPU: bool = False  # Enable GPU acceleration for OCR if available
 

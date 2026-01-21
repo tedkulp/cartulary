@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+from app.services.ocr import create_ocr_engine
 
 logger = logging.getLogger(__name__)
 
@@ -25,47 +26,27 @@ class OCRService:
 
         if self._ocr_engine is None:
             try:
-                import easyocr
-
-                # Auto-detect GPU availability if use_gpu is True
-                use_gpu = self.use_gpu
-                if use_gpu:
-                    try:
-                        import torch
-                        if not torch.cuda.is_available():
-                            logger.warning("GPU requested but CUDA not available, falling back to CPU")
-                            use_gpu = False
-                        else:
-                            logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
-                    except ImportError:
-                        logger.warning("PyTorch not available for GPU detection, falling back to CPU")
-                        use_gpu = False
-
-                # EasyOCR supports multiple languages and works well on ARM64
-                # Map our language codes to EasyOCR format
-                lang_list = [lang if lang != "en" else "en" for lang in self.languages]
-
-                self._ocr_engine = easyocr.Reader(
-                    lang_list=lang_list,
-                    gpu=use_gpu
-                )
-                logger.info(f"EasyOCR engine initialized successfully with languages: {lang_list}, GPU: {use_gpu}")
-            except ImportError:
-                logger.warning(
-                    "EasyOCR not installed. OCR features will be disabled. "
-                    "Install with: pip install easyocr"
-                )
-                self.enabled = False
+                self._ocr_engine = create_ocr_engine()
+                if self._ocr_engine:
+                    self._ocr_engine.initialize(self.languages, self.use_gpu)
+                    logger.info(
+                        f"✅ {self._ocr_engine.name} initialized successfully "
+                        f"(languages={self.languages}, gpu={self.use_gpu})"
+                    )
+                else:
+                    logger.error("Failed to create OCR engine")
+                    self.enabled = False
             except Exception as e:
-                logger.error(f"Failed to initialize EasyOCR: {e}")
+                logger.error(f"Failed to initialize OCR engine: {e}")
                 self.enabled = False
 
-    def extract_text(self, file_path: str) -> Optional[str]:
+    def extract_text(self, file_path: str, force_ocr: bool = False) -> Optional[str]:
         """
         Extract text from an image or PDF file.
 
         Args:
             file_path: Path to the file to process
+            force_ocr: If True, force OCR even if embedded text exists (for reprocessing)
 
         Returns:
             Extracted text or None if extraction failed
@@ -78,7 +59,7 @@ class OCRService:
 
             # Handle PDF files - always try to extract embedded text first
             if file_path_obj.suffix.lower() == ".pdf":
-                return self._extract_text_from_pdf(file_path)
+                return self._extract_text_from_pdf(file_path, force_ocr=force_ocr)
 
             # For images, we need OCR
             if not self.enabled:
@@ -106,7 +87,7 @@ class OCRService:
             Extracted text
         """
         try:
-            logger.info(f"Starting EasyOCR text extraction for: {image_path}")
+            logger.info(f"Starting OCR text extraction for: {image_path}")
 
             # Check file exists and is readable
             file_path_obj = Path(image_path)
@@ -128,23 +109,8 @@ class OCRService:
                 logger.info(f"Image is large ({file_size} bytes), resizing to reduce memory usage")
                 processed_image_path = self._resize_image_for_ocr(image_path)
 
-            # EasyOCR returns: [([bbox], text, confidence), ...]
-            result = self._ocr_engine.readtext(processed_image_path)
-
-            if not result:
-                logger.warning(f"EasyOCR returned no text detections for: {image_path}")
-                return ""
-
-            # Extract text from OCR results
-            text_lines = []
-            for detection in result:
-                if len(detection) >= 3:
-                    bbox, text, confidence = detection
-                    if confidence > 0.5:  # Only include confident results
-                        text_lines.append(text)
-
-            extracted_text = "\n".join(text_lines)
-            logger.info(f"EasyOCR extracted {len(text_lines)} text lines, {len(extracted_text)} total characters")
+            # Use the OCR engine's extract_text method
+            extracted_text = self._ocr_engine.extract_text(processed_image_path)
 
             # Clean up resized temp file if it was created
             if processed_image_path != image_path:
@@ -166,12 +132,13 @@ class OCRService:
                     pass
             return None
 
-    def _extract_text_from_pdf(self, pdf_path: str) -> Optional[str]:
+    def _extract_text_from_pdf(self, pdf_path: str, force_ocr: bool = False) -> Optional[str]:
         """
         Extract text from PDF file.
 
         Args:
             pdf_path: Path to PDF file
+            force_ocr: If True, skip embedded text and force OCR
 
         Returns:
             Extracted text from all pages
@@ -204,12 +171,22 @@ class OCRService:
                 try:
                     page = doc[page_num]
 
-                    # First try to extract embedded text
-                    text = page.get_text()
+                    text = None
+                    
+                    # If force_ocr is True, skip embedded text extraction entirely
+                    if force_ocr:
+                        logger.info(f"Page {page_num + 1}: Forcing OCR (ignoring embedded text)")
+                    else:
+                        # First try to extract embedded text
+                        text = page.get_text()
 
-                    # If no embedded text or very little, use OCR (if available)
-                    if (not text or len(text.strip()) < 50) and self.enabled:
-                        logger.info(f"Page {page_num + 1}: Embedded text too short ({len(text.strip())} chars), attempting OCR")
+                    # Use OCR if: forced, no embedded text, or embedded text too short
+                    should_use_ocr = force_ocr or (not text or len(text.strip()) < 50)
+                    
+                    if should_use_ocr and self.enabled:
+                        if not force_ocr:
+                            logger.info(f"Page {page_num + 1}: Embedded text too short ({len(text.strip()) if text else 0} chars), attempting OCR")
+                        
                         self._initialize_engine()
                         if self._ocr_engine:
                             # Convert page to image
@@ -225,7 +202,8 @@ class OCRService:
                             # Clean up temp file
                             Path(img_path).unlink(missing_ok=True)
                     else:
-                        logger.info(f"Page {page_num + 1}: Extracted {len(text.strip())} chars of embedded text")
+                        if text:
+                            logger.info(f"Page {page_num + 1}: Extracted {len(text.strip())} chars of embedded text")
 
                     if text:
                         all_text.append(text)

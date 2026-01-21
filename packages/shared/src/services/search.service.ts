@@ -34,10 +34,11 @@ export class SearchService {
   async advancedSearch(
     query: string,
     mode: SearchMode = 'hybrid',
-    limit = 10
+    limit = 10,
+    similarityThreshold = 0.3
   ): Promise<SearchResult[]> {
     const { data } = await this.api.get<SearchResult[]>('/api/v1/search/advanced', {
-      params: { q: query, mode, limit },
+      params: { q: query, mode, limit, similarity_threshold: similarityThreshold },
     })
     return data
   }

@@ -548,7 +548,12 @@ export default function DocumentDetail() {
               <div>
                 <p className="text-sm text-muted-foreground">Document Date</p>
                 <p className="font-medium">
-                  {new Date(document.extracted_date + 'T12:00:00').toLocaleDateString()}
+                  {new Date(document.extracted_date + 'T00:00:00').toLocaleDateString(undefined, {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    timeZone: 'UTC'
+                  })}
                 </p>
               </div>
             )}

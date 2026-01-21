@@ -155,9 +155,11 @@ Guidelines:
 - For summary: If the document is primarily about one specific person (e.g., birth certificate, death certificate, medical record, diploma), include that person's full name in the summary. For example: "Birth certificate for John Smith, born January 15, 1990"
 - For suggested_tags:
   * Suggest 3-5 relevant tags based on content
-  * IMPORTANT: If any of the existing tags listed above are absolutely relevant to this document, use those exact tag names
-  * Only suggest new tags if the existing tags are not relevant or if additional categorization would be helpful
+  * If any of the existing tags listed above are absolutely relevant to this document, use those exact tag names
+  * Suggest new tags if the existing tags are not relevant or if additional categorization would be helpful
   * Prefer existing tags when they accurately describe the document's content, subject, or category
+  * Consider all the words in a tag, not just a single word when determining its relevance. For example for the tag "commitment form", if the document is a form for membership to an organization, then the tag isn't relevant.
+  * DO NOT return existing tags that are not relevant to the document. They ABSOLUTELY must be relevant to the document!
 - Keep responses concise and factual
 - Return ONLY the JSON object, nothing else
 """
@@ -216,6 +218,7 @@ Guidelines:
             cleaned = cleaned.strip()
 
             # Parse JSON
+            logger.info(f"Parsing LLM metadata response (length: {len(cleaned)} chars): {cleaned}...")
             metadata = json.loads(cleaned)
 
             # Validate and normalize

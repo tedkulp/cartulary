@@ -75,8 +75,11 @@ services:
       - OIDC_MOBILE_CLIENT_ID=${OIDC_MOBILE_CLIENT_ID:-}
       # OCR configuration
       - OCR_ENABLED=${OCR_ENABLED:-false}
+      - OCR_PROVIDER=${OCR_PROVIDER:-auto}
       - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
       - OCR_USE_GPU=${OCR_USE_GPU:-false}
+      # Disable OneDNN/MKL optimizations to avoid PaddlePaddle runtime errors
+      - FLAGS_use_mkldnn=false
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
       - ENABLE_IMAP_WATCHER=${ENABLE_IMAP_WATCHER:-false}
@@ -94,13 +97,15 @@ services:
       dockerfile: Dockerfile.paddleocr
     container_name: cartulary-celery-worker
     # Run both worker and beat in the same container
-    # Limit concurrency to 2 workers to reduce memory usage
+    # Limit concurrency to 1 to reduce memory usage (PaddleOCR models are ~4GB per worker)
     command: >
       sh -c "celery -A app.tasks.celery_app beat --loglevel=info --detach &&
-             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=10"
+             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=5"
     volumes:
       - ./apps/backend:/app
       - ./document_storage:/data/documents
+      - paddleocr_models:/root/.paddleocr  # Cache PaddleOCR models
+      - huggingface_models:/root/.cache/huggingface  # Cache sentence-transformers models
     environment:
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
@@ -119,12 +124,15 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       # OCR configuration
       - OCR_ENABLED=${OCR_ENABLED:-false}
+      - OCR_PROVIDER=${OCR_PROVIDER:-auto}
       - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
       - OCR_USE_GPU=${OCR_USE_GPU:-false}
+      # Disable OneDNN/MKL optimizations to avoid PaddlePaddle runtime errors
+      - FLAGS_use_mkldnn=false
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 6G  # PaddleOCR models need ~4GB, plus overhead
         reservations:
           memory: 2G
     depends_on:
@@ -160,6 +168,8 @@ volumes:
   postgres_data:
   redis_data:
   document_storage:
+  paddleocr_models:
+  huggingface_models:
 
 networks:
   cartulary-network:

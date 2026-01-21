@@ -70,8 +70,8 @@ export default function UploadDialog({
 
     setSelectedFile(file)
     // Pre-fill title from filename (without extension)
-    const filename = file.name.replace(/\.[^/.]+$/, '')
-    setTitle(filename)
+    // const filename = file.name.replace(/\.[^/.]+$/, '')
+    // setTitle(filename)
   }
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {

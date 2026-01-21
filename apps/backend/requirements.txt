@@ -34,9 +34,19 @@ aioboto3>=12.0.0
 # OCR & PDF
 PyMuPDF>=1.23.0  # For PDF text extraction
 Pillow>=10.0.0  # For image processing
+img2pdf>=0.5.0  # For converting images to PDF
 
-# OCR with EasyOCR (better ARM64 support than PaddleOCR)
+# OCR - Strategy pattern supports both PaddleOCR and EasyOCR
+# PaddleOCR: Better accuracy, recommended for x86/AMD64 (set OCR_PROVIDER=paddleocr)
+# Pin to 2.x versions due to breaking changes and OneDNN bugs in 3.x
+paddlepaddle==2.6.2  # CPU version - last 2.x release
+paddleocr<3.0.0  # Stay on 2.x to avoid breaking API changes
+# For GPU support, use: paddlepaddle-gpu==2.6.2 instead of paddlepaddle
+
+# EasyOCR: Better compatibility, recommended for ARM64 (set OCR_PROVIDER=easyocr)
 easyocr>=1.7.0
+
+# OCR_PROVIDER=auto (default) will auto-detect architecture and choose the best option
 
 # Embeddings & LLM
 sentence-transformers>=2.2.0

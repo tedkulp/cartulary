@@ -37,7 +37,7 @@ class VectorSearchService:
             )
 
     def vector_search(
-        self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.0
+        self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.3
     ) -> List[Tuple[Document, float]]:
         """
         Perform vector similarity search.
@@ -46,7 +46,8 @@ class VectorSearchService:
             query: Search query
             user_id: User ID for filtering results
             limit: Maximum number of results
-            similarity_threshold: Minimum cosine similarity score (0-1)
+            similarity_threshold: Minimum cosine similarity score (0-1). Default 0.3 filters out irrelevant results.
+                                  0.8-1.0: Very relevant, 0.6-0.8: Moderately relevant, 0.3-0.6: Somewhat relevant
 
         Returns:
             List of (Document, similarity_score) tuples, ordered by similarity desc
@@ -124,6 +125,8 @@ class VectorSearchService:
         limit: int = 10,
         fts_weight: float = 0.5,
         vector_weight: float = 0.5,
+        similarity_threshold: float = 0.3,
+        min_rrf_score: float = 0.005,
     ) -> List[Tuple[Document, float]]:
         """
         Perform hybrid search combining full-text and vector search using RRF.
@@ -138,6 +141,8 @@ class VectorSearchService:
             limit: Maximum number of results
             fts_weight: Weight for full-text search results (0-1)
             vector_weight: Weight for vector search results (0-1)
+            similarity_threshold: Minimum similarity for vector results (0-1)
+            min_rrf_score: Minimum RRF score to include in results
 
         Returns:
             List of (Document, rrf_score) tuples, ordered by RRF score desc
@@ -147,7 +152,7 @@ class VectorSearchService:
         # Perform both searches
         search_service = SearchService(self.db)
         fts_results = search_service.search_documents(query, user_id, skip=0, limit=limit * 2)
-        vector_results = self.vector_search(query, user_id, limit=limit * 2)
+        vector_results = self.vector_search(query, user_id, limit=limit * 2, similarity_threshold=similarity_threshold)
 
         # Apply Reciprocal Rank Fusion
         k = 60  # RRF constant
@@ -169,7 +174,11 @@ class VectorSearchService:
         sorted_doc_ids = sorted(doc_scores.keys(), key=lambda x: doc_scores[x], reverse=True)
         results = []
 
-        for doc_id in sorted_doc_ids[:limit]:
+        for doc_id in sorted_doc_ids:
+            # Filter by minimum RRF score to remove irrelevant results
+            if doc_scores[doc_id] < min_rrf_score:
+                continue
+                
             doc = (
                 self.db.query(Document)
                 .filter(Document.id == doc_id, Document.owner_id == user_id)
@@ -177,5 +186,9 @@ class VectorSearchService:
             )
             if doc:
                 results.append((doc, doc_scores[doc_id]))
+                
+            # Stop once we have enough results
+            if len(results) >= limit:
+                break
 
         return results

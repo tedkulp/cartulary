@@ -80,6 +80,12 @@ async def advanced_search(
     q: str = Query(..., description="Search query"),
     mode: SearchMode = Query(SearchMode.HYBRID, description="Search mode"),
     limit: int = Query(10, ge=1, le=100, description="Maximum number of results"),
+    similarity_threshold: float = Query(
+        0.3, 
+        ge=0.0, 
+        le=1.0, 
+        description="Minimum similarity score (0-1) for semantic/hybrid search. 0.3=default, 0.5=stricter, 0.0=no filter"
+    ),
     current_user: User = Depends(get_current_user),
     search_service: SearchService = Depends(get_search_service),
     vector_search_service: VectorSearchService = Depends(get_vector_search_service),
@@ -90,6 +96,11 @@ async def advanced_search(
     - **q**: Search query string
     - **mode**: Search mode (fulltext, semantic, or hybrid)
     - **limit**: Maximum number of results
+    - **similarity_threshold**: Minimum relevance score (0-1). Higher = stricter filtering.
+      - 0.0: No filtering (return all results)
+      - 0.3: Default (filters out irrelevant results)
+      - 0.5: Strict (only fairly relevant results)
+      - 0.7: Very strict (only highly relevant results)
 
     Modes:
     - **fulltext**: Traditional keyword search (fast, exact matching)
@@ -98,10 +109,14 @@ async def advanced_search(
     """
     if mode == SearchMode.SEMANTIC:
         # Pure semantic search
-        results = vector_search_service.vector_search(q, current_user.id, limit=limit)
+        results = vector_search_service.vector_search(
+            q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
+        )
     elif mode == SearchMode.HYBRID:
         # Hybrid search with RRF
-        results = vector_search_service.hybrid_search(q, current_user.id, limit=limit)
+        results = vector_search_service.hybrid_search(
+            q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
+        )
     else:
         # Full-text search (default)
         docs = search_service.search_documents(q, current_user.id, skip=0, limit=limit)

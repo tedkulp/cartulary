@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name="app.tasks.process_document", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
-def process_document(self, document_id: str) -> dict:
+def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
     """
     Process a document: extract text via OCR and update database.
 
     Args:
         document_id: UUID of the document to process
+        force_ocr: If True, force OCR even if embedded text exists (for reprocessing)
 
     Returns:
         Processing result dict with status and metadata
@@ -64,7 +65,7 @@ def process_document(self, document_id: str) -> dict:
         ocr_service = OCRService()
 
         # Extract text
-        extracted_text = ocr_service.extract_text(absolute_path)
+        extracted_text = ocr_service.extract_text(absolute_path, force_ocr=force_ocr)
 
         if extracted_text and len(extracted_text.strip()) > 0:
             doc.ocr_text = extracted_text
@@ -152,6 +153,7 @@ def process_document(self, document_id: str) -> dict:
 def reprocess_document(document_id: str) -> dict:
     """
     Reprocess a document (useful for retrying failed processing).
+    Forces OCR even if embedded text exists.
 
     Args:
         document_id: UUID of the document to reprocess
@@ -159,8 +161,8 @@ def reprocess_document(document_id: str) -> dict:
     Returns:
         Processing result dict
     """
-    logger.info(f"Reprocessing document {document_id}")
-    return process_document(document_id)
+    logger.info(f"Reprocessing document {document_id} (forcing OCR)")
+    return process_document(document_id, force_ocr=True)
 
 
 @celery_app.task(bind=True, name="app.tasks.generate_embeddings", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})

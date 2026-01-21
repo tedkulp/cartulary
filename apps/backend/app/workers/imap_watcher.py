@@ -223,23 +223,37 @@ class IMAPMailboxHandler:
         document_id = uuid.uuid4()
 
         # Save file to storage
-        storage_path = self.storage.get_file_path(f"{document_id}/{filename}")
-        storage_path.parent.mkdir(parents=True, exist_ok=True)
+        doc_path = self.storage._get_document_path(document_id)
+        storage_path = doc_path / filename
 
         with open(storage_path, 'wb') as f:
             f.write(content)
 
-        file_size = len(content)
+        # Convert images to PDF
+        if self.storage._is_image_file(filename):
+            logger.info(f"Image attachment detected, converting to PDF: {filename}")
+            pdf_path = self.storage._convert_image_to_pdf(storage_path)
+            final_storage_path = pdf_path
+            final_filename = pdf_path.name
+            final_mime_type = "application/pdf"
+        else:
+            final_storage_path = storage_path
+            final_filename = filename
+            final_mime_type = mime_type
+
+        # Get file size and relative path
+        file_size = final_storage_path.stat().st_size
+        relative_path = str(final_storage_path.relative_to(self.storage.base_path))
 
         # Create document record
         document = Document(
             id=document_id,
             title=filename,
             original_filename=filename,
-            file_path=f"{document_id}/{filename}",
+            file_path=relative_path,
             checksum=checksum,
             file_size=file_size,
-            mime_type=mime_type,
+            mime_type=final_mime_type,
             owner_id=self.import_source.owner_id,
             processing_status="pending"
         )

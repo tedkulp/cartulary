@@ -17,6 +17,9 @@ COPY apps ./apps
 RUN --mount=type=cache,target=/root/.pnpm-store \
     pnpm install --frozen-lockfile
 
+# Build the shared package (required for imports in web app)
+RUN pnpm --filter @cartulary/shared build
+
 # Expose Vite dev server port
 EXPOSE 8080
 
@@ -45,6 +48,9 @@ COPY apps/web ./apps/web
 # Install dependencies
 RUN --mount=type=cache,target=/root/.pnpm-store \
     pnpm install --frozen-lockfile
+
+# Build the shared package first (dependency for web app)
+RUN pnpm --filter @cartulary/shared build
 
 # Build the application
 RUN pnpm --filter @cartulary/web build

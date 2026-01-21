@@ -1,14 +1,17 @@
 """Storage service for handling file operations."""
 import hashlib
+import logging
 import os
 import shutil
 from pathlib import Path
-from typing import BinaryIO, Optional
+from typing import BinaryIO, Optional, Tuple
 from uuid import UUID
 
 from fastapi import UploadFile
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StorageService:
@@ -64,22 +67,84 @@ class StorageService:
 
         return sha256_hash.hexdigest()
 
+    def _is_image_file(self, filename: str) -> bool:
+        """Check if filename is an image type that should be converted to PDF."""
+        image_extensions = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.gif'}
+        ext = Path(filename).suffix.lower()
+        return ext in image_extensions
+
+    def _convert_image_to_pdf(self, image_path: Path) -> Path:
+        """
+        Convert an image file to PDF.
+
+        Args:
+            image_path: Path to image file
+
+        Returns:
+            Path to generated PDF file
+        """
+        try:
+            import img2pdf
+            from PIL import Image
+            
+            # Output PDF path (same location, .pdf extension)
+            pdf_path = image_path.with_suffix('.pdf')
+            
+            logger.info(f"Converting image to PDF: {image_path} -> {pdf_path}")
+            
+            # Open image to check if it needs conversion
+            with Image.open(image_path) as img:
+                # Convert RGBA to RGB if needed (img2pdf doesn't support RGBA)
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    logger.info(f"Converting image mode from {img.mode} to RGB")
+                    rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                    # Save as temporary RGB image
+                    temp_path = image_path.with_suffix('.tmp.jpg')
+                    rgb_img.save(temp_path, 'JPEG', quality=95)
+                    image_to_convert = temp_path
+                else:
+                    image_to_convert = image_path
+            
+            # Convert to PDF
+            with open(pdf_path, 'wb') as pdf_file:
+                pdf_file.write(img2pdf.convert(str(image_to_convert)))
+            
+            # Clean up temp file if it was created
+            if image_to_convert != image_path:
+                image_to_convert.unlink()
+            
+            # Delete original image
+            image_path.unlink()
+            
+            logger.info(f"Successfully converted image to PDF: {pdf_path}")
+            return pdf_path
+            
+        except Exception as e:
+            logger.error(f"Failed to convert image to PDF: {e}", exc_info=True)
+            # If conversion fails, keep the original image
+            return image_path
+
     async def save_file(
         self,
         file: UploadFile,
         document_id: UUID,
-        filename: str
-    ) -> str:
+        filename: str,
+        convert_images_to_pdf: bool = True
+    ) -> Tuple[str, str, str]:
         """
-        Save uploaded file to storage.
+        Save uploaded file to storage. Images are automatically converted to PDF.
 
         Args:
             file: Uploaded file
             document_id: Document UUID
             filename: Original filename
+            convert_images_to_pdf: Whether to convert images to PDF (default: True)
 
         Returns:
-            Relative path to saved file
+            Tuple of (relative_path, final_filename, mime_type)
         """
         doc_path = self._get_document_path(document_id)
 
@@ -87,13 +152,26 @@ class StorageService:
         safe_filename = os.path.basename(filename)
         file_path = doc_path / safe_filename
 
-        # Save file
+        # Save file initially
         await file.seek(0)
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
+        # Convert images to PDF
+        if convert_images_to_pdf and self._is_image_file(safe_filename):
+            logger.info(f"Image file detected, converting to PDF: {safe_filename}")
+            pdf_path = self._convert_image_to_pdf(file_path)
+            final_path = pdf_path
+            final_filename = pdf_path.name
+            mime_type = "application/pdf"
+        else:
+            final_path = file_path
+            final_filename = safe_filename
+            mime_type = file.content_type or "application/octet-stream"
+
         # Return relative path from base_path
-        return str(file_path.relative_to(self.base_path))
+        relative_path = str(final_path.relative_to(self.base_path))
+        return relative_path, final_filename, mime_type
 
     def get_file_path(self, relative_path: str) -> Path:
         """

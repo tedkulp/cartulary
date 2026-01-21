@@ -110,21 +110,39 @@ class DocumentFileHandler(FileSystemEventHandler):
             document_id = uuid.uuid4()
 
             # Copy file to storage location
-            storage_path = storage.get_file_path(f"{document_id}/{filename}")
-            storage_path.parent.mkdir(parents=True, exist_ok=True)
+            doc_path = storage._get_document_path(document_id)
+            storage_path = doc_path / filename
             shutil.copy2(file_path, storage_path)
 
+            # Convert images to PDF
+            if storage._is_image_file(filename):
+                logger.info(f"Image file detected in import, converting to PDF: {filename}")
+                pdf_path = storage._convert_image_to_pdf(storage_path)
+                final_storage_path = pdf_path
+                final_filename = pdf_path.name
+                mime_type = "application/pdf"
+            else:
+                final_storage_path = storage_path
+                final_filename = filename
+                # Detect mime type
+                import mimetypes
+                mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
             # Get file size
-            file_size = storage_path.stat().st_size
+            file_size = final_storage_path.stat().st_size
+
+            # Get relative path
+            relative_path = str(final_storage_path.relative_to(storage.base_path))
 
             # Create document record
             document = Document(
                 id=document_id,
                 title=filename,
                 original_filename=filename,
-                file_path=f"{document_id}/{filename}",
+                file_path=relative_path,
                 checksum=checksum,
                 file_size=file_size,
+                mime_type=mime_type,
                 owner_id=source.owner_id,
                 processing_status="pending"
             )

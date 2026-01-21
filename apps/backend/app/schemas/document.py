@@ -1,5 +1,5 @@
 """Document schemas."""
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 from uuid import UUID
 
@@ -47,7 +47,7 @@ class DocumentResponse(DocumentBase):
 
     # LLM-extracted metadata
     extracted_title: Optional[str] = None
-    extracted_date: Optional[datetime] = None
+    extracted_date: Optional[date] = None  # Date only (no time)
     extracted_correspondent: Optional[str] = None
     extracted_document_type: Optional[str] = None
     extracted_summary: Optional[str] = None
@@ -55,12 +55,30 @@ class DocumentResponse(DocumentBase):
     @computed_field
     @property
     def file_extension(self) -> str:
-        """Extract file extension from original filename."""
+        """Extract file extension from mime type (actual stored file type)."""
+        # Map common MIME types to extensions
+        mime_to_ext = {
+            "application/pdf": "pdf",
+            "image/jpeg": "jpg",
+            "image/jpg": "jpg",
+            "image/png": "png",
+            "image/tiff": "tiff",
+            "image/tif": "tif",
+            "image/bmp": "bmp",
+            "image/gif": "gif",
+        }
+        
+        # Try to get from mime_type first (reflects actual stored file)
+        if self.mime_type and self.mime_type.lower() in mime_to_ext:
+            return mime_to_ext[self.mime_type.lower()]
+        
+        # Fallback to original filename extension
         if "." in self.original_filename:
             return self.original_filename.rsplit(".", 1)[-1].lower()
+        
         return ""
 
-    @field_serializer('created_at', 'updated_at', 'extracted_date')
+    @field_serializer('created_at', 'updated_at')
     def serialize_datetime(self, value: Optional[datetime]) -> Optional[str]:
         """Serialize datetime to ISO 8601 format string with UTC timezone."""
         if not value:
@@ -70,6 +88,13 @@ class DocumentResponse(DocumentBase):
             from datetime import timezone
             value = value.replace(tzinfo=timezone.utc)
         return value.isoformat()
+    
+    @field_serializer('extracted_date')
+    def serialize_date(self, value: Optional[date]) -> Optional[str]:
+        """Serialize date to YYYY-MM-DD format (no time/timezone)."""
+        if not value:
+            return None
+        return value.isoformat()  # Returns YYYY-MM-DD format
 
     class Config:
         from_attributes = True

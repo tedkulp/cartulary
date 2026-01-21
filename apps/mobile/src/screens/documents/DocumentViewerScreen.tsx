@@ -214,21 +214,14 @@ export default function DocumentViewerScreen({
               <Text variant="bodySmall" style={styles.headerValue}>
                 {(() => {
                   try {
-                    const date = new Date(currentDocument.extracted_date);
-                    // Check if time is set to something other than 00:00
-                    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
-
-                    if (hasTime) {
-                      return date.toLocaleString(undefined, {
-                        year: 'numeric',
-                        month: 'numeric',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit'
-                      });
-                    } else {
-                      return date.toLocaleDateString();
-                    }
+                    // Parse as date-only (YYYY-MM-DD format) with UTC timezone
+                    const date = new Date(currentDocument.extracted_date + 'T00:00:00Z');
+                    return date.toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      timeZone: 'UTC'
+                    });
                   } catch {
                     return currentDocument.extracted_date;
                   }
