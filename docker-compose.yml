@@ -56,7 +56,7 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - DEBUG=true
-      - BACKEND_CORS_ORIGINS=["http://localhost:8080"]
+      - BACKEND_CORS_ORIGINS=["http://localhost:8080","http://backend:8000"]
       - EMBEDDING_ENABLED=${EMBEDDING_ENABLED:-false}
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
@@ -155,6 +155,7 @@ services:
       - ./apps/web/src:/app/apps/web/src
       - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
       - ./packages/shared/src:/app/packages/shared/src
+      - ./packages/shared/dist:/app/packages/shared/dist
     environment:
       # Configure Vite dev server proxy to reach backend container
       - VITE_PROXY_TARGET=http://backend:8000

@@ -9,6 +9,7 @@ import {
   ActivityService,
   ImportSourceService,
   WebSocketService,
+  ChatService,
   useAuthStore,
 } from '@cartulary/shared'
 
@@ -21,6 +22,7 @@ export const userService = new UserService(api)
 export const sharingService = new SharingService(api)
 export const activityService = new ActivityService(api)
 export const importSourceService = new ImportSourceService(api)
+export const chatService = new ChatService(api)
 
 // Initialize WebSocket service
 const getToken = () => useAuthStore.getState().accessToken

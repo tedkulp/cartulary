@@ -14,6 +14,7 @@ import SettingsPage from './pages/SettingsPage'
 import TagsPage from './pages/TagsPage'
 import SharedDocuments from './pages/SharedDocuments'
 import AboutPage from './pages/AboutPage'
+import ChatPage from './pages/ChatPage'
 
 // Protected route wrapper
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -57,6 +58,7 @@ function App() {
           >
             <Route index element={<DocumentsList />} />
             <Route path="documents/:id" element={<DocumentDetail />} />
+            <Route path="chat" element={<ChatPage />} />
             <Route path="admin" element={<AdminPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="tags" element={<TagsPage />} />

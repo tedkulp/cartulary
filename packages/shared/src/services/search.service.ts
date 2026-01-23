@@ -6,6 +6,8 @@ export type SearchMode = 'fulltext' | 'semantic' | 'hybrid'
 export interface SearchResult {
   document: Document
   score: number
+  highlights: string[]
+  matched_chunk?: string
 }
 
 /**

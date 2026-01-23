@@ -248,3 +248,96 @@ Guidelines:
             "summary": "",
             "suggested_tags": [],
         }
+
+    def generate_answer(
+        self,
+        question: str,
+        context_chunks: List[str],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """
+        Generate an answer to a question based on document context using RAG.
+
+        Args:
+            question: User's question
+            context_chunks: List of relevant document chunks to use as context
+            conversation_history: Optional list of previous messages [{"role": "user"|"assistant", "content": str}]
+
+        Returns:
+            Generated answer text
+        """
+        # Build context from chunks
+        context_text = "\n\n---\n\n".join(
+            [f"Document excerpt {i+1}:\n{chunk}" for i, chunk in enumerate(context_chunks)]
+        )
+
+        # Build the prompt
+        prompt = f"""Answer the user's question based on the following document excerpts. Be concise and accurate.
+
+Context from documents:
+{context_text}
+
+Question: {question}
+
+Instructions:
+- Answer based ONLY on the information provided in the document excerpts above
+- If the answer is not in the provided context, say "I don't have enough information in the documents to answer that question"
+- Be specific and cite which document excerpt(s) you used when relevant
+- Keep your answer clear and concise"""
+
+        try:
+            # Build messages array for chat-based models
+            messages = []
+            
+            # System message
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful assistant that answers questions about documents. "
+                "You only answer based on the provided document context and clearly state when "
+                "information is not available in the documents."
+            })
+            
+            # Add conversation history if provided
+            if conversation_history:
+                for msg in conversation_history[-10:]:  # Keep last 10 messages for context
+                    messages.append(msg)
+            
+            # Add current question
+            messages.append({"role": "user", "content": prompt})
+            
+            # Call LLM based on provider
+            if self.provider == LLMProvider.OPENAI:
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    temperature=0.3,  # Slightly creative but mostly factual
+                    max_tokens=1000,
+                )
+                return response.choices[0].message.content
+
+            elif self.provider == LLMProvider.GEMINI:
+                # Gemini doesn't use the same message format, build a single prompt
+                full_prompt = prompt
+                if conversation_history:
+                    history_text = "\n".join([
+                        f"{msg['role'].upper()}: {msg['content']}"
+                        for msg in conversation_history[-10:]
+                    ])
+                    full_prompt = f"Previous conversation:\n{history_text}\n\n{prompt}"
+                
+                model = self.client.GenerativeModel(self.model_name)
+                response = model.generate_content(full_prompt)
+                return response.text
+
+            elif self.provider == LLMProvider.OLLAMA:
+                response = self.client.chat(
+                    model=self.model_name,
+                    messages=messages,
+                )
+                return response["message"]["content"]
+
+            raise ValueError(f"Unsupported provider: {self.provider}")
+            
+        except Exception as e:
+            logger.error(f"Failed to generate answer with {self.provider}: {e}")
+            return "I encountered an error while trying to answer your question. Please try again."

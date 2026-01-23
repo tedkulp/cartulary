@@ -24,6 +24,86 @@ class SearchService:
         """
         self.db = db
 
+    def extract_snippet(
+        self, text: str, query: str, context_chars: int = 150, max_snippets: int = 2
+    ) -> List[str]:
+        """
+        Extract snippets from text around keyword matches with highlighted terms.
+
+        Args:
+            text: Text to search in
+            query: Search query
+            context_chars: Number of characters to include before/after match
+            max_snippets: Maximum number of snippets to return
+
+        Returns:
+            List of text snippets with matched terms wrapped in <mark> tags
+        """
+        if not text or not query:
+            return []
+
+        # Split query into terms
+        terms = [term.strip() for term in query.split() if term.strip()]
+        if not terms:
+            return []
+
+        snippets = []
+        text_lower = text.lower()
+
+        # Find matches for each term
+        for term in terms[:max_snippets]:  # Limit to first few terms
+            term_lower = term.lower()
+            # Find first occurrence of this term
+            match_pos = text_lower.find(term_lower)
+
+            if match_pos != -1:
+                # Extract context around the match
+                # Use len(term_lower) to match the search position calculation
+                start = max(0, match_pos - context_chars)
+                end = min(len(text), match_pos + len(term_lower) + context_chars)
+
+                snippet = text[start:end].strip()
+
+                # Highlight all occurrences of search terms in the snippet
+                snippet = self._highlight_terms(snippet, terms)
+
+                # Add ellipsis if we're not at the start/end
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(text):
+                    snippet = snippet + "..."
+
+                snippets.append(snippet)
+
+                # Break after finding first match to avoid duplicates
+                if len(snippets) >= max_snippets:
+                    break
+
+        return snippets
+
+    def _highlight_terms(self, text: str, terms: List[str]) -> str:
+        """
+        Wrap matched terms in <mark> tags for highlighting.
+
+        Args:
+            text: Text to highlight
+            terms: List of terms to highlight
+
+        Returns:
+            Text with matched terms wrapped in <mark> tags
+        """
+        import re
+        
+        result = text
+        for term in terms:
+            if not term:
+                continue
+            # Case-insensitive replacement, preserving original case
+            pattern = re.compile(re.escape(term), re.IGNORECASE)
+            result = pattern.sub(lambda m: f"<mark>{m.group(0)}</mark>", result)
+        
+        return result
+
     def search_documents(
         self,
         query: str,

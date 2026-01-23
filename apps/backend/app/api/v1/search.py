@@ -28,6 +28,8 @@ class SearchResult(BaseModel):
 
     document: DocumentResponse
     score: float
+    highlights: List[str] = []
+    matched_chunk: str | None = None
 
 
 def get_search_service(db: Session = Depends(get_db)) -> SearchService:
@@ -107,23 +109,77 @@ async def advanced_search(
     - **semantic**: Vector similarity search (understands meaning)
     - **hybrid**: Combines both methods using Reciprocal Rank Fusion (best quality)
     """
+    search_results = []
+
     if mode == SearchMode.SEMANTIC:
         # Pure semantic search
         results = vector_search_service.vector_search(
             q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
         )
+        # results is List[Tuple[Document, float, str]]
+        for doc, score, chunk_text in results:
+            highlights = []
+            if chunk_text:
+                # Truncate chunk if too long for display and highlight terms
+                display_chunk = chunk_text[:300] + "..." if len(chunk_text) > 300 else chunk_text
+                display_chunk = search_service._highlight_terms(display_chunk, q.split())
+                highlights.append(display_chunk)
+            
+            search_results.append(
+                SearchResult(
+                    document=DocumentResponse.model_validate(doc),
+                    score=score,
+                    highlights=highlights,
+                    matched_chunk=chunk_text
+                )
+            )
+
     elif mode == SearchMode.HYBRID:
         # Hybrid search with RRF
         results = vector_search_service.hybrid_search(
             q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
         )
+        # results is List[Tuple[Document, float, Optional[str]]]
+        for doc, score, chunk_text in results:
+            highlights = []
+            
+            # Add semantic chunk if available (with highlighting)
+            if chunk_text:
+                display_chunk = chunk_text[:300] + "..." if len(chunk_text) > 300 else chunk_text
+                display_chunk = search_service._highlight_terms(display_chunk, q.split())
+                highlights.append(display_chunk)
+            
+            # Add keyword snippet from OCR text (already highlighted by extract_snippet)
+            if doc.ocr_text:
+                snippets = search_service.extract_snippet(doc.ocr_text, q, context_chars=150, max_snippets=1)
+                highlights.extend(snippets)
+            
+            search_results.append(
+                SearchResult(
+                    document=DocumentResponse.model_validate(doc),
+                    score=score,
+                    highlights=highlights,
+                    matched_chunk=chunk_text
+                )
+            )
+
     else:
         # Full-text search (default)
         docs = search_service.search_documents(q, current_user.id, skip=0, limit=limit)
-        results = [(doc, 1.0) for doc in docs]  # Assign score of 1.0 to all FTS results
+        for doc in docs:
+            highlights = []
+            # Extract snippets from OCR text
+            if doc.ocr_text:
+                snippets = search_service.extract_snippet(doc.ocr_text, q, context_chars=150, max_snippets=2)
+                highlights.extend(snippets)
+            
+            search_results.append(
+                SearchResult(
+                    document=doc,
+                    score=1.0,
+                    highlights=highlights,
+                    matched_chunk=None
+                )
+            )
 
-    # Convert to SearchResult objects
-    return [
-        SearchResult(document=DocumentResponse.model_validate(doc), score=score)
-        for doc, score in results
-    ]
+    return search_results

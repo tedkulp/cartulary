@@ -38,7 +38,7 @@ class VectorSearchService:
 
     def vector_search(
         self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.3
-    ) -> List[Tuple[Document, float]]:
+    ) -> List[Tuple[Document, float, str]]:
         """
         Perform vector similarity search.
 
@@ -50,7 +50,7 @@ class VectorSearchService:
                                   0.8-1.0: Very relevant, 0.6-0.8: Moderately relevant, 0.3-0.6: Somewhat relevant
 
         Returns:
-            List of (Document, similarity_score) tuples, ordered by similarity desc
+            List of (Document, similarity_score, chunk_text) tuples, ordered by similarity desc
         """
         # Generate embedding for query
         query_embedding = self.embedding_service.generate_embedding(query)
@@ -95,7 +95,7 @@ class VectorSearchService:
             },
         )
 
-        # Convert results to Document objects with scores
+        # Convert results to Document objects with scores and chunk_text
         results = []
         for row in result:
             # Create Document object from row
@@ -114,7 +114,8 @@ class VectorSearchService:
                 uploaded_by=row.uploaded_by,
             )
             similarity = float(row.similarity)
-            results.append((doc, similarity))
+            chunk_text = row.chunk_text or ""
+            results.append((doc, similarity, chunk_text))
 
         return results
 
@@ -127,7 +128,7 @@ class VectorSearchService:
         vector_weight: float = 0.5,
         similarity_threshold: float = 0.3,
         min_rrf_score: float = 0.005,
-    ) -> List[Tuple[Document, float]]:
+    ) -> List[Tuple[Document, float, Optional[str]]]:
         """
         Perform hybrid search combining full-text and vector search using RRF.
 
@@ -145,7 +146,7 @@ class VectorSearchService:
             min_rrf_score: Minimum RRF score to include in results
 
         Returns:
-            List of (Document, rrf_score) tuples, ordered by RRF score desc
+            List of (Document, rrf_score, chunk_text) tuples, ordered by RRF score desc
         """
         from app.services.search_service import SearchService
 
@@ -157,6 +158,7 @@ class VectorSearchService:
         # Apply Reciprocal Rank Fusion
         k = 60  # RRF constant
         doc_scores = {}
+        doc_chunks = {}  # Store chunk_text from vector results
 
         # Add FTS scores
         for rank, doc in enumerate(fts_results, start=1):
@@ -165,10 +167,13 @@ class VectorSearchService:
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + rrf_score
 
         # Add vector search scores
-        for rank, (doc, similarity) in enumerate(vector_results, start=1):
+        for rank, (doc, similarity, chunk_text) in enumerate(vector_results, start=1):
             doc_id = doc.id
             rrf_score = vector_weight / (k + rank)
             doc_scores[doc_id] = doc_scores.get(doc_id, 0) + rrf_score
+            # Store the chunk_text from the best matching chunk
+            if doc_id not in doc_chunks:
+                doc_chunks[doc_id] = chunk_text
 
         # Sort by RRF score and fetch full document objects
         sorted_doc_ids = sorted(doc_scores.keys(), key=lambda x: doc_scores[x], reverse=True)
@@ -185,7 +190,8 @@ class VectorSearchService:
                 .first()
             )
             if doc:
-                results.append((doc, doc_scores[doc_id]))
+                chunk_text = doc_chunks.get(doc_id)
+                results.append((doc, doc_scores[doc_id], chunk_text))
                 
             # Stop once we have enough results
             if len(results) >= limit:

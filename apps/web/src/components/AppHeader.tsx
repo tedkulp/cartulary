@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
-import { FileText, Tags, Share2, Settings as SettingsIcon, User, LogOut, Info } from 'lucide-react'
+  import { FileText, Tags, Share2, Settings as SettingsIcon, User, LogOut, Info, MessageSquare } from 'lucide-react'
 
 export default function AppHeader() {
   const navigate = useNavigate()
@@ -35,6 +35,13 @@ export default function AppHeader() {
           >
             <FileText className="mr-2 h-4 w-4" />
             Documents
+          </Button>
+          <Button
+            variant={isActive('/chat') ? 'secondary' : 'ghost'}
+            onClick={() => navigate('/chat')}
+          >
+            <MessageSquare className="mr-2 h-4 w-4" />
+            Chat
           </Button>
           <Button
             variant={isActive('/tags') ? 'secondary' : 'ghost'}

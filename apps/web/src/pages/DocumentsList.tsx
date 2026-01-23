@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useDocuments, useWebSocket, useAuthStore } from '@cartulary/shared'
 import { documentService, searchService, tagService, websocketService } from '../services'
-import type { Document, Tag, SearchMode } from '@cartulary/shared'
+import type { Document, Tag, SearchMode, SearchResult } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -73,8 +73,9 @@ export default function DocumentsList() {
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
   const [searchMode, setSearchMode] = useState<SearchMode>('hybrid')
-  const [searchResults, setSearchResults] = useState<Document[]>([])
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [hasSearched, setHasSearched] = useState(false) // Track if search was actually performed
 
   // Filter state
   const [showFilters, setShowFilters] = useState(false)
@@ -137,7 +138,8 @@ export default function DocumentsList() {
   }, [documents, filterTagId, nameFilter, selectedTags])
 
   // Get displayed documents (search results or filtered documents)
-  const displayedDocuments = searchQuery ? searchResults : filteredDocuments
+  // Only show search results if a search was actually performed
+  const displayedDocuments = hasSearched ? searchResults.map(r => r.document) : filteredDocuments
 
   // Memoized statistics for better performance
   const statistics = useMemo(() => {
@@ -244,13 +246,15 @@ export default function DocumentsList() {
   const performSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
       setSearchResults([])
+      setHasSearched(false)
       return
     }
 
     setIsSearching(true)
     try {
       const results = await searchService.advancedSearch(searchQuery, searchMode)
-      setSearchResults(results.map(r => r.document))
+      setSearchResults(results)
+      setHasSearched(true)
     } catch (error) {
       toast.error('Search failed')
       console.error('Search error:', error)
@@ -262,6 +266,7 @@ export default function DocumentsList() {
   const clearSearch = useCallback(() => {
     setSearchQuery('')
     setSearchResults([])
+    setHasSearched(false)
   }, [])
 
   const clearTagFilter = useCallback(() => {
@@ -684,14 +689,14 @@ export default function DocumentsList() {
             <div className="text-center py-12">
               <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
               <h3 className="text-lg font-medium mb-2">
-                {searchQuery ? 'No results found' : 'No documents yet'}
+                {hasSearched ? 'No results found' : 'No documents yet'}
               </h3>
               <p className="text-muted-foreground mb-4">
-                {searchQuery
+                {hasSearched
                   ? `No documents match "${searchQuery}"`
                   : 'Upload your first document to get started'}
               </p>
-              {searchQuery && (
+              {hasSearched && (
                 <Button variant="outline" onClick={clearSearch}>
                   Clear Search
                 </Button>
@@ -761,7 +766,11 @@ export default function DocumentsList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {displayedDocuments.map((doc) => (
+                  {displayedDocuments.map((doc) => {
+                    // Find the search result for this document to get highlights
+                    const searchResult = hasSearched ? searchResults.find(r => r.document.id === doc.id) : null
+                    
+                    return (
                     <TableRow
                       key={doc.id}
                       className={`cursor-pointer ${selectedIds.has(doc.id) ? 'bg-muted/50' : ''}`}
@@ -782,6 +791,19 @@ export default function DocumentsList() {
                           <div className="text-sm text-muted-foreground">
                             {doc.original_filename}
                           </div>
+                          {searchResult && searchResult.highlights.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              {searchResult.highlights.map((highlight, idx) => (
+                                <div
+                                  key={idx}
+                                  className="text-xs text-muted-foreground bg-muted/50 p-2 rounded italic [&_mark]:bg-yellow-200 [&_mark]:dark:bg-yellow-800 [&_mark]:px-0.5 [&_mark]:rounded [&_mark]:not-italic [&_mark]:text-foreground"
+                                  dangerouslySetInnerHTML={{
+                                    __html: highlight.replace(/<(?!\/?(mark)>)/gi, '&lt;')
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>{formatFileSize(doc.file_size)}</TableCell>
@@ -826,7 +848,8 @@ export default function DocumentsList() {
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>

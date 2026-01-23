@@ -10,6 +10,12 @@ const api = axios.create({
   },
 })
 
+// Debug: Log axios config
+console.log('Axios instance created:', {
+  baseURL: api.defaults.baseURL,
+  headers: api.defaults.headers,
+})
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
@@ -17,6 +23,13 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
+    // Debug: Log request config
+    console.log('Axios request:', {
+      url: config.url,
+      baseURL: config.baseURL,
+      fullURL: config.baseURL ? `${config.baseURL}${config.url}` : config.url,
+      method: config.method,
+    })
     return config
   },
   (error) => {
