@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmbeddingService:
-    """Service for generating text embeddings using local models or OpenAI API."""
+    """Service for generating text embeddings using local models, OpenAI API, or Ollama."""
 
     def __init__(
         self,
@@ -14,20 +14,24 @@ class EmbeddingService:
         model_name: str = "all-MiniLM-L6-v2",
         api_key: Optional[str] = None,
         dimension: Optional[int] = None,
+        base_url: Optional[str] = None,
     ):
         """
         Initialize embedding service.
 
         Args:
-            provider: Embedding provider ("local" or "openai")
-            model_name: Model name (all-MiniLM-L6-v2 for local, text-embedding-3-small for OpenAI)
+            provider: Embedding provider ("local", "openai", or "ollama")
+            model_name: Model name (all-MiniLM-L6-v2 for local, text-embedding-3-small for OpenAI, nomic-embed-text for Ollama)
             api_key: OpenAI API key (required if provider="openai")
             dimension: Embedding dimension (if not provided, will be auto-detected)
+            base_url: Base URL for Ollama (default: http://localhost:11434)
         """
         self.provider = provider
         self.model_name = model_name
         self.api_key = api_key
+        self.base_url = base_url or "http://localhost:11434"
         self.model = None
+        self._ollama_client = None
 
         # Set dimension (use provided or auto-detect)
         if dimension:
@@ -41,6 +45,16 @@ class EmbeddingService:
                 self.dimension = 1536
             else:
                 self.dimension = 1536  # Default for OpenAI
+        elif provider == "ollama":
+            # Common Ollama embedding models
+            if "nomic-embed-text" in model_name:
+                self.dimension = 768
+            elif "mxbai-embed-large" in model_name:
+                self.dimension = 1024
+            elif "all-minilm" in model_name:
+                self.dimension = 384
+            else:
+                self.dimension = 768  # Default for Ollama
         else:
             # Local sentence-transformers models
             if "mpnet" in model_name:
@@ -52,8 +66,8 @@ class EmbeddingService:
 
     def _load_model(self):
         """Lazy load the embedding model (local models only)."""
-        if self.provider == "openai":
-            # OpenAI doesn't need a loaded model
+        if self.provider in ["openai", "ollama"]:
+            # OpenAI and Ollama don't need a loaded model
             return
 
         if self.model is None:
@@ -72,6 +86,20 @@ class EmbeddingService:
                 logger.error(f"Failed to load embedding model: {e}")
                 raise
 
+    def _initialize_ollama_client(self):
+        """Lazy initialize Ollama client."""
+        if self._ollama_client is None:
+            try:
+                import ollama
+                self._ollama_client = ollama.Client(host=self.base_url)
+                logger.info(f"Ollama embedding client initialized (host={self.base_url}, model={self.model_name})")
+            except ImportError:
+                logger.error("ollama package not installed. Install with: pip install ollama")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to initialize Ollama client: {e}")
+                raise
+
     def generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding for a single text.
@@ -88,6 +116,8 @@ class EmbeddingService:
 
         if self.provider == "openai":
             return self._generate_openai_embedding(text)
+        elif self.provider == "ollama":
+            return self._generate_ollama_embedding(text)
         else:
             return self._generate_local_embedding(text)
 
@@ -120,6 +150,20 @@ class EmbeddingService:
             logger.error(f"Failed to generate OpenAI embedding: {e}")
             raise
 
+    def _generate_ollama_embedding(self, text: str) -> List[float]:
+        """Generate embedding using Ollama."""
+        self._initialize_ollama_client()
+
+        try:
+            response = self._ollama_client.embeddings(
+                model=self.model_name,
+                prompt=text
+            )
+            return response["embedding"]
+        except Exception as e:
+            logger.error(f"Failed to generate Ollama embedding: {e}")
+            raise
+
     def generate_embeddings(self, texts: List[str], batch_size: int = 8) -> List[List[float]]:
         """
         Generate embeddings for multiple texts (batch processing).
@@ -136,6 +180,8 @@ class EmbeddingService:
 
         if self.provider == "openai":
             return self._generate_openai_embeddings(texts, batch_size)
+        elif self.provider == "ollama":
+            return self._generate_ollama_embeddings(texts, batch_size)
         else:
             return self._generate_local_embeddings(texts, batch_size)
 
@@ -216,6 +262,31 @@ class EmbeddingService:
             raise
         except Exception as e:
             logger.error(f"Failed to generate OpenAI batch embeddings: {e}", exc_info=True)
+            raise
+
+    def _generate_ollama_embeddings(self, texts: List[str], batch_size: int) -> List[List[float]]:
+        """Generate embeddings using Ollama (processes one at a time)."""
+        self._initialize_ollama_client()
+
+        try:
+            all_embeddings = []
+
+            # Ollama processes embeddings one at a time
+            for i, text in enumerate(texts):
+                if i % 10 == 0:  # Log progress every 10 texts
+                    logger.info(f"Processing Ollama embedding {i+1}/{len(texts)}")
+
+                response = self._ollama_client.embeddings(
+                    model=self.model_name,
+                    prompt=text
+                )
+                all_embeddings.append(response["embedding"])
+
+            logger.info(f"Completed Ollama embeddings - returning {len(all_embeddings)} embeddings")
+            return all_embeddings
+
+        except Exception as e:
+            logger.error(f"Failed to generate Ollama batch embeddings: {e}", exc_info=True)
             raise
 
     def chunk_text(

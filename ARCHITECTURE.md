@@ -22,9 +22,10 @@ Cartulary uses a **consolidated container architecture** for simplicity and reso
    - Runs on port 8000
 
 4. **`cartulary-celery-worker`** - Celery worker + beat
-   - Heavy processing tasks (OCR, embeddings, LLM metadata extraction)
+   - Heavy processing tasks (vision OCR via Ollama, embeddings, LLM metadata extraction)
    - Scheduled tasks (periodic cleanup, etc.)
    - Both worker and beat scheduler run in same container
+   - Connects to external Ollama service for OCR and embeddings
 
 5. **`cartulary-frontend`** - React development server
    - Development only (production serves static files from nginx)

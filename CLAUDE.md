@@ -5,9 +5,9 @@ This document contains context, conventions, and best practices for working on t
 ## Project Overview
 
 **Cartulary** is a digital archive system similar to paperless-ngx with advanced features:
-- OCR processing with PaddleOCR
+- Vision-based OCR using Ollama (minicpm-v, llava, gemma3)
 - Semantic search using RAG (Retrieval Augmented Generation)
-- Optional LLM-based metadata extraction (OpenAI, Gemini, Ollama)
+- LLM-based metadata extraction (Ollama, OpenAI, Gemini)
 - Multi-user support with RBAC
 - Automated import from directories and IMAP mailboxes
 
@@ -19,8 +19,8 @@ This document contains context, conventions, and best practices for working on t
 - **ORM**: SQLAlchemy 2.0+ (async where possible)
 - **Migrations**: Alembic
 - **Task Queue**: Celery with Redis broker
-- **OCR**: PaddleOCR
-- **Embeddings**: sentence-transformers (local) + OpenAI API (optional)
+- **OCR**: Ollama vision models (minicpm-v, llava, gemma3)
+- **Embeddings**: Ollama (nomic-embed-text), sentence-transformers (local), or OpenAI API
 - **Storage**: Local filesystem with optional S3/MinIO support
 
 ### Frontend
@@ -406,21 +406,23 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 STORAGE_TYPE=local  # or s3
 LOCAL_STORAGE_PATH=/data/documents
 
-# OCR
-OCR_ENABLED=true
-OCR_LANGUAGES=["en"]
-PADDLEOCR_USE_GPU=false
-
-# Embeddings
-EMBEDDING_PROVIDER=local  # or openai
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-EMBEDDING_DIMENSION=384
-
-# LLM (Optional)
-LLM_ENABLED=false
-LLM_PROVIDER=ollama  # openai, gemini, ollama
-LLM_MODEL=llama2
+# Ollama (Required for OCR and embeddings)
 LLM_BASE_URL=http://localhost:11434
+
+# Vision OCR (Required - uses Ollama)
+OCR_ENABLED=true
+VISION_OCR_MODEL=minicpm-v  # or llava, gemma3:4b-it-q4_K_M
+
+# Embeddings (Uses Ollama by default)
+EMBEDDING_ENABLED=true
+EMBEDDING_PROVIDER=ollama  # ollama, openai, or local
+EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_DIMENSION=768
+
+# LLM Metadata Extraction (Optional)
+LLM_ENABLED=false
+LLM_PROVIDER=ollama  # ollama, openai, gemini
+LLM_MODEL=llama2
 
 # Auth
 SECRET_KEY=your-secret-key-change-in-production
@@ -590,14 +592,16 @@ Note: User will handle Docker operations manually.
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-### OCR Processing Slow
-- Consider using GPU version of PaddlePaddle
-- Reduce OCR quality settings in config
-- Process documents in batches
+### Vision OCR Processing Slow
+- Use a faster Ollama vision model (minicpm-v is faster than llava:13b)
+- Ensure Ollama has adequate CPU/GPU resources
+- Reduce image resolution in ocr_service.py (lower the Matrix scale factor)
+- Increase Celery concurrency if you have multiple CPU cores
 
 ### Out of Memory (Embeddings)
-- Reduce embedding batch size
-- Use smaller embedding model (all-MiniLM-L6-v2 instead of all-mpnet-base-v2)
+- Use Ollama embeddings (offloads to external service)
+- If using local embeddings, reduce batch size
+- Use smaller embedding model (all-MiniLM-L6-v2: 384 dims instead of nomic-embed-text: 768 dims)
 - Process fewer chunks per document
 
 ### Frontend Build Errors
@@ -654,9 +658,9 @@ npm install
 - pgvector: https://github.com/pgvector/pgvector
 
 ### Key Dependencies
-- PaddleOCR: https://github.com/PaddlePaddle/PaddleOCR
-- sentence-transformers: https://www.sbert.net/
-- LangChain: https://python.langchain.com/
+- Ollama: https://ollama.ai (Required for OCR and embeddings)
+- sentence-transformers: https://www.sbert.net/ (Optional, for local embeddings)
+- OpenAI API: https://platform.openai.com/ (Optional, for embeddings/LLM)
 
 ## Implementation Plan
 
@@ -667,9 +671,9 @@ This project follows the detailed implementation plan at [~/.claude/plans/deep-s
 
 The plan outlines 8 phases:
 1. **Phase 1: Foundation** - Core infrastructure, auth, basic document upload
-2. **Phase 2: OCR & Full-Text Search** - PaddleOCR integration, PostgreSQL FTS
-3. **Phase 3: Semantic Search (RAG)** - Vector embeddings, pgvector, hybrid search
-4. **Phase 4: LLM Integration** - Metadata extraction, auto-tagging
+2. **Phase 2: OCR & Full-Text Search** - Ollama vision OCR, PostgreSQL FTS
+3. **Phase 3: Semantic Search (RAG)** - Vector embeddings (Ollama), pgvector, hybrid search
+4. **Phase 4: LLM Integration** - Metadata extraction, auto-tagging (Ollama/OpenAI/Gemini)
 5. **Phase 5: Multi-User & Permissions** - RBAC, document sharing
 6. **Phase 6: Import Sources** - Directory watching, IMAP integration
 7. **Phase 7: OIDC & Polish** - Enterprise auth, UI improvements
@@ -692,21 +696,24 @@ When starting a new session, provide:
 4. Next planned feature/task
 
 ### Key Project Decisions
-- **OCR Strategy**: Always create OCR'd PDF with embedded text layer
+- **OCR Strategy**: LLM vision-based OCR using Ollama (required dependency)
 - **Deduplication**: Block duplicate uploads via SHA-256 checksum
 - **Search**: Hybrid approach combining FTS and semantic search with RRF
 - **Storage**: Support both local filesystem and S3-compatible storage
-- **LLM**: All LLM features are optional and configurable
+- **Embeddings**: Ollama by default (nomic-embed-text), with OpenAI/local fallback
+- **LLM Metadata**: Optional feature using Ollama/OpenAI/Gemini
 - **OIDC**: Enterprise SSO support with auto-provisioning, works alongside JWT auth
 
 ### Areas Requiring Special Attention
-- **Vector embeddings**: Dimension must match model (384 for local, 1536 for OpenAI)
+- **Ollama dependency**: OCR and embeddings require Ollama running and accessible
+- **Vector embeddings**: Dimension must match model (768 for nomic-embed-text, 384 for local, 1536 for OpenAI)
+- **Vision models**: Ensure Ollama has the vision model pulled (minicpm-v, llava, gemma3)
 - **Async operations**: Use async/await consistently in backend
 - **Error handling**: Provide user-friendly messages, log detailed errors
 - **Testing**: Maintain test coverage above 80%
-- **Performance**: Monitor OCR and embedding generation time
+- **Performance**: Monitor vision OCR and embedding generation time
 
 ---
 
-Last Updated: 2025-12-26
-Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete, Rebranded as Cartulary)
+Last Updated: 2026-01-25
+Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete, Ollama Vision OCR Implemented)

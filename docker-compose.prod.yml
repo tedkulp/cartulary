@@ -65,10 +65,9 @@ services:
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost/auth/callback}
       - OIDC_MOBILE_CLIENT_ID=${OIDC_MOBILE_CLIENT_ID:-}
-      # OCR configuration
+      # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
-      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
-      - OCR_USE_GPU=${OCR_USE_GPU:-false}
+      - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
       - ENABLE_IMAP_WATCHER=${ENABLE_IMAP_WATCHER:-false}
@@ -101,10 +100,9 @@ services:
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      # OCR configuration
+      # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
-      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
-      - OCR_USE_GPU=${OCR_USE_GPU:-false}
+      - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
     deploy:
       resources:
         limits:

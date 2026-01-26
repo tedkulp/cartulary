@@ -59,28 +59,15 @@ class Settings(BaseSettings):
             return v
         return []
 
-    # OCR (Phase 2)
+    # Vision OCR (Phase 2 - LLM-based)
     OCR_ENABLED: bool = False
-    OCR_PROVIDER: str = "auto"  # auto, paddleocr, easyocr (auto defaults to paddleocr on x86/ARM detection)
-    OCR_LANGUAGES: List[str] = ["en"]
-    OCR_USE_GPU: bool = False  # Enable GPU acceleration for OCR if available
-
-    @field_validator("OCR_LANGUAGES", mode="before")
-    @classmethod
-    def parse_ocr_languages(cls, v: Any) -> List[str]:
-        """Parse OCR languages from JSON string or list."""
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except json.JSONDecodeError:
-                return [i.strip() for i in v.split(",")]
-        return v
+    VISION_OCR_MODEL: str = "minicpm-v"  # Ollama vision model for text extraction
 
     # Embeddings (Phase 3)
     EMBEDDING_ENABLED: bool = False  # Enable/disable automatic embedding generation
-    EMBEDDING_PROVIDER: str = "local"  # local, openai
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # For local: all-MiniLM-L6-v2, For OpenAI: text-embedding-3-small
-    EMBEDDING_DIMENSION: int = 384  # 384 for MiniLM, 1536 for OpenAI text-embedding-3-small
+    EMBEDDING_PROVIDER: str = "local"  # local, openai, ollama
+    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # For local: all-MiniLM-L6-v2, For OpenAI: text-embedding-3-small, For Ollama: nomic-embed-text
+    EMBEDDING_DIMENSION: int = 384  # 384 for MiniLM, 768 for nomic-embed-text, 1536 for OpenAI text-embedding-3-small
     EMBEDDING_CHUNK_SIZE: int = 500
     EMBEDDING_CHUNK_OVERLAP: int = 50
     OPENAI_API_KEY: Optional[str] = None  # Required if EMBEDDING_PROVIDER=openai

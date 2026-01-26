@@ -73,13 +73,9 @@ services:
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
       - OIDC_REDIRECT_URI=${OIDC_REDIRECT_URI:-http://localhost:8080/auth/callback}
       - OIDC_MOBILE_CLIENT_ID=${OIDC_MOBILE_CLIENT_ID:-}
-      # OCR configuration
+      # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
-      - OCR_PROVIDER=${OCR_PROVIDER:-auto}
-      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
-      - OCR_USE_GPU=${OCR_USE_GPU:-false}
-      # Disable OneDNN/MKL optimizations to avoid PaddlePaddle runtime errors
-      - FLAGS_use_mkldnn=false
+      - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
       - ENABLE_IMAP_WATCHER=${ENABLE_IMAP_WATCHER:-false}
@@ -94,18 +90,16 @@ services:
   celery_worker:
     build:
       context: ./apps/backend
-      dockerfile: Dockerfile.paddleocr
+      dockerfile: Dockerfile
     container_name: cartulary-celery-worker
     # Run both worker and beat in the same container
-    # Limit concurrency to 1 to reduce memory usage (PaddleOCR models are ~4GB per worker)
     command: >
       sh -c "celery -A app.tasks.celery_app beat --loglevel=info --detach &&
-             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=5"
+             celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 --max-tasks-per-child=10"
     volumes:
       - ./apps/backend:/app
       - ./document_storage:/data/documents
-      - paddleocr_models:/root/.paddleocr  # Cache PaddleOCR models
-      - huggingface_models:/root/.cache/huggingface  # Cache sentence-transformers models
+      - huggingface_models:/root/.cache/huggingface  # Cache sentence-transformers models (if using local embeddings)
     environment:
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
@@ -122,19 +116,15 @@ services:
       - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
       - LLM_BASE_URL=${LLM_BASE_URL:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      # OCR configuration
+      # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
-      - OCR_PROVIDER=${OCR_PROVIDER:-auto}
-      - OCR_LANGUAGES=${OCR_LANGUAGES:-["en"]}
-      - OCR_USE_GPU=${OCR_USE_GPU:-false}
-      # Disable OneDNN/MKL optimizations to avoid PaddlePaddle runtime errors
-      - FLAGS_use_mkldnn=false
+      - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
     deploy:
       resources:
         limits:
-          memory: 6G  # PaddleOCR models need ~4GB, plus overhead
+          memory: 4G  # Reduced from 6G since we're not loading OCR models locally
         reservations:
-          memory: 2G
+          memory: 1G
     depends_on:
       - postgres
       - redis
@@ -169,7 +159,6 @@ volumes:
   postgres_data:
   redis_data:
   document_storage:
-  paddleocr_models:
   huggingface_models:
 
 networks:

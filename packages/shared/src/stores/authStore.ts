@@ -90,7 +90,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       return true
     } catch (err: any) {
-      set({ error: err.response?.data?.detail || 'Registration failed', loading: false })
+      const detail = err.response?.data?.detail
+      let errorMessage = 'Registration failed'
+      
+      if (typeof detail === 'string') {
+        errorMessage = detail
+      } else if (Array.isArray(detail)) {
+        // Pydantic validation errors: array of {type, loc, msg, input, ctx}
+        errorMessage = detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+      } else if (detail && typeof detail === 'object') {
+        errorMessage = JSON.stringify(detail)
+      }
+      
+      set({ error: errorMessage, loading: false })
       return false
     } finally {
       set({ loading: false })
@@ -125,7 +137,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       return true
     } catch (err: any) {
-      set({ error: err.response?.data?.detail || 'Login failed', loading: false })
+      const detail = err.response?.data?.detail
+      let errorMessage = 'Login failed'
+      
+      if (typeof detail === 'string') {
+        errorMessage = detail
+      } else if (Array.isArray(detail)) {
+        // Pydantic validation errors: array of {type, loc, msg, input, ctx}
+        errorMessage = detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ')
+      } else if (detail && typeof detail === 'object') {
+        errorMessage = JSON.stringify(detail)
+      }
+      
+      set({ error: errorMessage, loading: false })
       return false
     } finally {
       set({ loading: false })
@@ -200,11 +224,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   initialize: async (): Promise<void> => {
     set({ initializing: true })
-    const { accessToken, fetchCurrentUser } = get()
-    if (accessToken) {
-      await fetchCurrentUser()
+    try {
+      const { accessToken, fetchCurrentUser } = get()
+      if (accessToken) {
+        await fetchCurrentUser()
+      }
+    } catch (err) {
+      console.error('Failed to initialize auth:', err)
+    } finally {
+      set({ initializing: false })
     }
-    set({ initializing: false })
   },
 
   clearError: () => {

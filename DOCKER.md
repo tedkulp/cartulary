@@ -218,8 +218,10 @@ GitHub Actions automatically builds and publishes multi-architecture Docker imag
 All images support both **linux/amd64** and **linux/arm64** architectures:
 
 - `ghcr.io/tedkulp/cartulary-backend:latest` - FastAPI backend
-- `ghcr.io/tedkulp/cartulary-celery-worker:latest` - Celery worker with EasyOCR
+- `ghcr.io/tedkulp/cartulary-celery-worker:latest` - Celery worker (connects to external Ollama)
 - `ghcr.io/tedkulp/cartulary-web:latest` - Production nginx frontend
+
+**Note:** Ollama must be running separately and accessible to the containers. Configure via `LLM_BASE_URL` environment variable.
 
 ### Trigger Manual Builds
 
@@ -271,13 +273,15 @@ docker buildx build \
 ### Build Time Estimates
 
 **First build** (no cache):
-- Backend: ~5 minutes
-- Celery worker: ~8 minutes (EasyOCR dependencies)
+- Backend: ~3 minutes (reduced, no OCR libraries)
+- Celery worker: ~3 minutes (same as backend, uses standard Dockerfile)
 - Web frontend: ~4 minutes
-- **Total**: ~17 minutes (builds run in parallel)
+- **Total**: ~10 minutes (builds run in parallel)
 
 **Incremental builds** (with cache):
-- Backend: ~1 minute
-- Celery worker: ~2 minutes
+- Backend: ~30 seconds
+- Celery worker: ~30 seconds
 - Web frontend: ~1 minute
-- **Total**: ~4 minutes
+- **Total**: ~2 minutes
+
+**Note:** Build times significantly reduced after removing PaddleOCR/EasyOCR dependencies.

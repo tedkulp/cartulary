@@ -254,6 +254,7 @@ def generate_embeddings(self, document_id: str) -> dict:
                 model_name=settings.EMBEDDING_MODEL,
                 api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
                 dimension=settings.EMBEDDING_DIMENSION,
+                base_url=settings.LLM_BASE_URL if settings.EMBEDDING_PROVIDER == "ollama" else None,
             )
             logger.info(f"EmbeddingService initialized successfully")
         except Exception as init_error:

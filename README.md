@@ -6,9 +6,9 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 
 - **Document Management**: Upload, organize, and manage PDF files and images
 - **Real-Time Updates**: WebSocket-based live updates for document status, uploads, and changes
-- **OCR Processing**: Automatic text extraction using EasyOCR with automatic image resizing
+- **Vision-Based OCR**: LLM-powered text extraction using Ollama vision models (minicpm-v, llava, gemma3)
 - **Semantic Search**: RAG-powered search with vector embeddings
-- **AI Metadata Extraction**: Automatic tagging, categorization, and metadata extraction using LLMs (OpenAI, Gemini, Ollama)
+- **AI Metadata Extraction**: Automatic tagging, categorization, and metadata extraction using LLMs
 - **Advanced Sorting**: Server-side sorting by title, date, file size, and processing status
 - **Document Statistics**: Real-time word count, file size metrics, and document counts
 - **Multi-User Support**: Role-based access control and document sharing
@@ -24,8 +24,8 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 - **Framework**: FastAPI (Python 3.11+)
 - **Database**: PostgreSQL 16 with pgvector extension
 - **Task Queue**: Celery + Redis
-- **OCR**: EasyOCR (with automatic image resizing for memory optimization)
-- **Embeddings**: sentence-transformers (local) or OpenAI API
+- **OCR**: Ollama vision models (minicpm-v, llava, gemma3) for text extraction
+- **Embeddings**: Ollama (nomic-embed-text), sentence-transformers (local), or OpenAI API
 - **Storage**: Local filesystem or S3-compatible (MinIO)
 - **Real-Time**: WebSocket with Redis pub/sub for live updates
 
@@ -46,7 +46,14 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 ### Prerequisites
 
 - Docker and Docker Compose
-- At least 6GB RAM available for Docker (4GB for Celery workers + 2GB for services)
+- **Ollama** installed and running (required for OCR and embeddings)
+  - Install from: https://ollama.ai
+  - Pull required models:
+    ```bash
+    ollama pull minicpm-v        # For vision OCR (recommended)
+    ollama pull nomic-embed-text # For embeddings (recommended)
+    ```
+- At least 4GB RAM available for Docker
 
 ### Installation
 
@@ -63,23 +70,30 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
    cp frontend/.env.example frontend/.env
    ```
 
-3. **Generate a secret key**:
+3. **Configure Ollama connection**:
+   ```bash
+   # Edit .env and set LLM_BASE_URL to your Ollama instance
+   # Default: http://localhost:11434
+   # If Ollama is on a different host: http://your-ollama-host:11434
+   ```
+
+4. **Generate a secret key**:
    ```bash
    # Update the SECRET_KEY in .env
    openssl rand -hex 32
    ```
 
-4. **Start the services**:
+5. **Start the services**:
    ```bash
    docker-compose up -d
    ```
 
-5. **Run database migrations**:
+6. **Run database migrations**:
    ```bash
    docker-compose exec backend alembic upgrade head
    ```
 
-6. **Access the application**:
+7. **Access the application**:
    - Frontend: http://localhost:8080
    - API Documentation: http://localhost:8080/api/v1/docs
 
@@ -240,8 +254,8 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Basic document upload with deduplication
 
 ### ✅ Phase 2: OCR & Full-Text Search
-- [x] OCR integration (PaddleOCR - optional)
-- [x] PDF text extraction (PyMuPDF)
+- [x] Vision OCR integration (Ollama vision models - required)
+- [x] PDF text extraction (PyMuPDF + LLM vision)
 - [x] Background processing (Celery)
 - [x] Full-text search (ILIKE-based)
 - [x] Tag management (backend API + UI)
@@ -250,12 +264,12 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] Reprocess endpoint for failed documents
 
 ### ✅ Phase 3: Semantic Search
-- [x] Embedding generation (OpenAI + local support)
+- [x] Embedding generation (Ollama, OpenAI, or local sentence-transformers)
 - [x] Vector search (pgvector with cosine similarity)
 - [x] Hybrid search (RRF combining FTS + semantic)
 - [x] Search mode UI (Fulltext/Semantic/Hybrid)
 - [x] Dimension validation on startup
-- [x] Provider switching support
+- [x] Provider switching support (Ollama/OpenAI/local)
 
 ### ✅ Phase 4: LLM Integration
 - [x] LLM service (OpenAI, Gemini, Ollama support)
@@ -354,7 +368,7 @@ Real-time metrics calculated across all accessible documents:
 
 - Built with [FastAPI](https://fastapi.tiangolo.com/)
 - Powered by [Vue 3](https://vuejs.org/)
-- OCR by [EasyOCR](https://github.com/JaidedAI/EasyOCR)
+- Vision OCR powered by [Ollama](https://ollama.ai)
 - Vector search with [pgvector](https://github.com/pgvector/pgvector)
 - Real-time updates with [Redis](https://redis.io/)
 

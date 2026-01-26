@@ -100,7 +100,7 @@ jobs:
 
           - name: celery-worker
             context: ./apps/backend
-            dockerfile: ./apps/backend/Dockerfile.paddleocr
+            dockerfile: ./apps/backend/Dockerfile
             image: celery-worker
             platforms: linux/amd64,linux/arm64
 
