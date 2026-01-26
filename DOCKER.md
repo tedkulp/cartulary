@@ -26,13 +26,20 @@ docker compose up --build
 
 - **postgres** - PostgreSQL 16 with pgvector (port 5432)
 - **redis** - Redis cache and Celery broker (port 6379)
-- **backend** - FastAPI backend (port 8000, not exposed)
-- **celery_worker** - Background task processor
-- **frontend** - React web app (port 8080, proxies to backend)
+- **backend** - FastAPI backend (port 8000, not exposed by default)
+- **celery_worker** - Background task processor (OCR, embeddings)
+- **web** - React web app (port 8080, proxies to backend)
+
+### External Dependencies
+
+- **Ollama** - Required for OCR and embeddings, runs separately
+  - Install from: https://ollama.ai
+  - Pull models: `ollama pull minicpm-v && ollama pull nomic-embed-text`
+  - Configure via `LLM_BASE_URL` environment variable
 
 ## Architecture
 
-The frontend acts as a reverse proxy to the backend:
+The web frontend acts as a reverse proxy to the backend:
 
 - **Development (local)**: Vite dev server on port 8080 proxies `/api` requests to `localhost:8000`
 - **Development (Docker)**: Vite dev server on port 8080 proxies `/api` requests to `backend:8000`
@@ -53,6 +60,7 @@ For the best development experience with hot-reload:
 
 2. Run frontend locally:
    ```bash
+   pnpm install
    pnpm dev
    ```
 
@@ -71,7 +79,7 @@ docker compose up
 
 **Note**: The frontend container does NOT have hot-reload enabled. To see code changes:
 1. Make your changes
-2. Rebuild: `docker compose up --build frontend`
+2. Rebuild: `docker compose up --build web`
 
 ## Environment Variables
 
@@ -84,10 +92,20 @@ DB_PASSWORD=changeme
 # Security
 SECRET_KEY=your-secret-key-change-in-production
 
-# Features (all optional)
-EMBEDDING_ENABLED=false
+# Ollama (required for OCR and embeddings)
+LLM_BASE_URL=http://host.docker.internal:11434  # For Docker on Mac/Windows
+# LLM_BASE_URL=http://172.17.0.1:11434          # For Docker on Linux
+
+# Features
+EMBEDDING_ENABLED=true
+EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_DIMENSION=768
+
+OCR_ENABLED=true
+VISION_OCR_MODEL=minicpm-v
+
 LLM_ENABLED=false
-OCR_ENABLED=false
 
 # OIDC (optional)
 OIDC_ENABLED=false
@@ -139,7 +157,7 @@ docker compose exec redis redis-cli
 ### Frontend won't start
 Make sure you've built the container:
 ```bash
-docker compose build frontend
+docker compose build web
 ```
 
 ### Need direct backend access for debugging
@@ -176,19 +194,36 @@ ports:
 docker compose build --no-cache
 ```
 
+### Ollama connection issues
+
+**On Mac/Windows:**
+```bash
+LLM_BASE_URL=http://host.docker.internal:11434
+```
+
+**On Linux:**
+```bash
+LLM_BASE_URL=http://172.17.0.1:11434
+```
+
+Or run Ollama in Docker:
+```bash
+docker run -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+```
+
 ## Production Deployment
 
 For production, use the production docker-compose file with pre-built images from GHCR:
 
 ```bash
 # Pull and start all services with GHCR images
-docker-compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d
 
 # View logs
-docker-compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.prod.yml logs -f
 
 # Stop services
-docker-compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml down
 ```
 
 Or build locally:
@@ -273,7 +308,7 @@ docker buildx build \
 ### Build Time Estimates
 
 **First build** (no cache):
-- Backend: ~3 minutes (reduced, no OCR libraries)
+- Backend: ~3 minutes
 - Celery worker: ~3 minutes (same as backend, uses standard Dockerfile)
 - Web frontend: ~4 minutes
 - **Total**: ~10 minutes (builds run in parallel)
@@ -284,4 +319,18 @@ docker buildx build \
 - Web frontend: ~1 minute
 - **Total**: ~2 minutes
 
-**Note:** Build times significantly reduced after removing PaddleOCR/EasyOCR dependencies.
+## Mobile App
+
+The mobile app (`apps/mobile`) is **not containerized** - it runs via Expo:
+
+```bash
+cd apps/mobile
+pnpm install
+pnpm start
+```
+
+See [apps/mobile/README.md](apps/mobile/README.md) for mobile development instructions.
+
+---
+
+Last Updated: 2026-01-26

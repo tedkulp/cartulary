@@ -1,381 +1,173 @@
-# OCR Strategy Pattern Implementation Plan
+# OCR Implementation - Ollama Vision
+
+> **Note**: This document describes the current OCR implementation using Ollama vision models.
+> The previous strategy pattern with PaddleOCR/EasyOCR has been removed in favor of LLM-based OCR.
 
 ## Overview
 
-Implement a strategy pattern for OCR providers to allow switching between EasyOCR and PaddleOCR depending on the deployment environment. PaddleOCR provides better accuracy but only runs well on AMD processors.
+Cartulary uses Ollama's vision-capable models for OCR (Optical Character Recognition). This approach provides:
 
-## Current State
+- **Better accuracy**: LLMs understand context and can handle complex layouts
+- **Simpler architecture**: No need for multiple OCR engine implementations
+- **Markdown output**: Extracted text is formatted as clean markdown
+- **Flexibility**: Easy to switch between different vision models
 
-- OCR is implemented in `apps/backend/app/services/ocr_service.py`
-- Uses EasyOCR with lazy initialization and GPU detection
-- Configuration in `apps/backend/app/config.py`
+## Current Implementation
 
-## Changes Required
+### Architecture
 
-### 1. Add Configuration Setting
-
-In `apps/backend/app/config.py`, add a new setting:
-
-```python
-# OCR (Phase 2)
-OCR_ENABLED: bool = False
-OCR_PROVIDER: str = "easyocr"  # "easyocr" or "paddleocr"
-OCR_LANGUAGES: List[str] = ["en"]
-OCR_USE_GPU: bool = False
+```
+Document Upload → PDF/Image → Ollama Vision API → Extracted Text (Markdown)
 ```
 
-### 2. Create OCR Engine Interface
+### Key Files
 
-Create `apps/backend/app/services/ocr/base.py`:
+- `apps/backend/app/services/ocr_service.py` - Main OCR service
+- `apps/backend/app/config.py` - Configuration settings
+- `apps/backend/app/tasks/document_tasks.py` - Celery task integration
 
-```python
-from abc import ABC, abstractmethod
-from typing import List, Optional
+### Configuration
 
-class OCREngine(ABC):
-    """Abstract base class for OCR engines."""
+```bash
+# Enable OCR processing
+OCR_ENABLED=true
 
-    @abstractmethod
-    def initialize(self, languages: List[str], use_gpu: bool) -> None:
-        """Initialize the OCR engine."""
-        pass
+# Ollama vision model for text extraction
+VISION_OCR_MODEL=minicpm-v  # or llava, gemma3:4b-it-q4_K_M
 
-    @abstractmethod
-    def extract_text(self, image_path: str) -> Optional[str]:
-        """Extract text from an image file."""
-        pass
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        """Return engine name for logging."""
-        pass
+# Ollama server URL (also used for embeddings)
+LLM_BASE_URL=http://localhost:11434
 ```
 
-### 3. Create Concrete Implementations
+### Supported Vision Models
 
-#### EasyOCR Engine (`apps/backend/app/services/ocr/easyocr_engine.py`)
+| Model | Size | Speed | Accuracy | Notes |
+|-------|------|-------|----------|-------|
+| `minicpm-v` | ~3GB | Fast | Good | Recommended for most use cases |
+| `llava` | ~4GB | Medium | Good | Good general-purpose model |
+| `llava:13b` | ~8GB | Slow | Better | Higher accuracy, more resources |
+| `gemma3:4b-it-q4_K_M` | ~3GB | Fast | Good | Good for structured documents |
 
-Move the current EasyOCR logic from `ocr_service.py` into this class:
+### How It Works
 
-```python
-import logging
-from typing import List, Optional
+1. **PDF Processing**:
+   - PDF pages are converted to images using PyMuPDF
+   - Each page is rendered at 300 DPI for quality
+   - Images are saved as temporary PNG files
 
-from .base import OCREngine
+2. **Image Processing**:
+   - Images are base64-encoded
+   - Sent to Ollama vision API with extraction prompt
+   - Response is clean markdown text
 
-logger = logging.getLogger(__name__)
+3. **Text Extraction Prompt**:
+   ```
+   Perform Optical Character Recognition (OCR) on the following image data.
+   Process all the text on the entire image, exactly as it's written.
+   The output should be the extracted text formatted in Markdown,
+   preserving structure where possible.
+   Do not add any commentary or explanation of the text, just the text itself.
+   ```
 
+## Code Structure
 
-class EasyOCREngine(OCREngine):
-    """EasyOCR implementation - works well on ARM64 and general CPU."""
-
-    def __init__(self):
-        self._engine = None
-
-    @property
-    def name(self) -> str:
-        return "EasyOCR"
-
-    def initialize(self, languages: List[str], use_gpu: bool) -> None:
-        """Initialize EasyOCR engine."""
-        import easyocr
-
-        # Auto-detect GPU availability if use_gpu is True
-        actual_use_gpu = use_gpu
-        if use_gpu:
-            try:
-                import torch
-                if not torch.cuda.is_available():
-                    logger.warning("GPU requested but CUDA not available, falling back to CPU")
-                    actual_use_gpu = False
-                else:
-                    logger.info(f"GPU detected: {torch.cuda.get_device_name(0)}")
-            except ImportError:
-                logger.warning("PyTorch not available for GPU detection, falling back to CPU")
-                actual_use_gpu = False
-
-        # EasyOCR supports multiple languages
-        lang_list = list(languages)
-
-        self._engine = easyocr.Reader(
-            lang_list=lang_list,
-            gpu=actual_use_gpu
-        )
-        logger.info(f"EasyOCR engine initialized with languages: {lang_list}, GPU: {actual_use_gpu}")
-
-    def extract_text(self, image_path: str) -> Optional[str]:
-        """Extract text from image using EasyOCR."""
-        if self._engine is None:
-            logger.error("EasyOCR engine not initialized")
-            return None
-
-        # EasyOCR returns: [([bbox], text, confidence), ...]
-        result = self._engine.readtext(image_path)
-
-        if not result:
-            return ""
-
-        # Extract text from OCR results
-        text_lines = []
-        for detection in result:
-            if len(detection) >= 3:
-                bbox, text, confidence = detection
-                if confidence > 0.5:  # Only include confident results
-                    text_lines.append(text)
-
-        return "\n".join(text_lines)
-```
-
-#### PaddleOCR Engine (`apps/backend/app/services/ocr/paddleocr_engine.py`)
+### OCRService Class
 
 ```python
-import logging
-from typing import List, Optional
-
-from .base import OCREngine
-
-logger = logging.getLogger(__name__)
-
-
-class PaddleOCREngine(OCREngine):
-    """PaddleOCR implementation - better accuracy, works well on AMD processors."""
-
-    def __init__(self):
-        self._engine = None
-
-    @property
-    def name(self) -> str:
-        return "PaddleOCR"
-
-    def initialize(self, languages: List[str], use_gpu: bool) -> None:
-        """Initialize PaddleOCR engine."""
-        from paddleocr import PaddleOCR
-
-        # PaddleOCR uses single language string, not list
-        # Map common language codes
-        lang_map = {
-            "en": "en",
-            "ch": "ch",
-            "chinese": "ch",
-            "de": "german",
-            "german": "german",
-            "fr": "french",
-            "french": "french",
-            "ja": "japan",
-            "japanese": "japan",
-            "ko": "korean",
-            "korean": "korean",
-        }
-
-        lang = languages[0] if languages else "en"
-        paddle_lang = lang_map.get(lang.lower(), lang)
-
-        self._engine = PaddleOCR(
-            use_angle_cls=True,
-            lang=paddle_lang,
-            use_gpu=use_gpu,
-            show_log=False  # Suppress verbose logging
-        )
-        logger.info(f"PaddleOCR engine initialized with language: {paddle_lang}, GPU: {use_gpu}")
-
-    def extract_text(self, image_path: str) -> Optional[str]:
-        """Extract text from image using PaddleOCR."""
-        if self._engine is None:
-            logger.error("PaddleOCR engine not initialized")
-            return None
-
-        # PaddleOCR returns nested structure: [[[box, (text, conf)], ...]]
-        result = self._engine.ocr(image_path, cls=True)
-
-        if not result:
-            return ""
-
-        text_lines = []
-        for page in result:
-            if page:
-                for line in page:
-                    if len(line) >= 2:
-                        text, confidence = line[1]
-                        if confidence > 0.5:  # Only include confident results
-                            text_lines.append(text)
-
-        return "\n".join(text_lines)
-```
-
-### 4. Create Factory Function
-
-Create `apps/backend/app/services/ocr/__init__.py`:
-
-```python
-"""OCR engine factory and exports."""
-import logging
-from typing import Optional
-
-from app.config import settings
-from .base import OCREngine
-
-logger = logging.getLogger(__name__)
-
-
-def create_ocr_engine() -> Optional[OCREngine]:
-    """
-    Factory to create the configured OCR engine.
-
-    Returns:
-        OCREngine instance or None if creation fails
-    """
-    provider = settings.OCR_PROVIDER.lower()
-
-    if provider == "paddleocr":
-        try:
-            from .paddleocr_engine import PaddleOCREngine
-            logger.info("Creating PaddleOCR engine")
-            return PaddleOCREngine()
-        except ImportError:
-            logger.warning(
-                "PaddleOCR not installed. Install with: pip install paddlepaddle paddleocr"
-            )
-            return None
-    else:
-        # Default to EasyOCR
-        try:
-            from .easyocr_engine import EasyOCREngine
-            logger.info("Creating EasyOCR engine")
-            return EasyOCREngine()
-        except ImportError:
-            logger.warning(
-                "EasyOCR not installed. Install with: pip install easyocr"
-            )
-            return None
-
-
-__all__ = ["OCREngine", "create_ocr_engine"]
-```
-
-### 5. Update OCRService
-
-Modify `apps/backend/app/services/ocr_service.py` to use the factory:
-
-```python
-"""OCR service for extracting text from documents."""
-import logging
-from pathlib import Path
-from typing import Optional
-
-from app.config import settings
-from app.services.ocr import create_ocr_engine
-
-logger = logging.getLogger(__name__)
-
-
 class OCRService:
-    """Service for OCR text extraction."""
-
     def __init__(self):
-        """Initialize OCR service."""
         self.enabled = settings.OCR_ENABLED
-        self.languages = settings.OCR_LANGUAGES
-        self.use_gpu = settings.OCR_USE_GPU
-        self._ocr_engine = None
+        self.model = settings.VISION_OCR_MODEL
+        self._ollama_client = None
 
-    def _initialize_engine(self):
-        """Lazy initialize OCR engine."""
-        if not self.enabled:
-            return
+    def _extract_text_from_image(self, image_path: str) -> Optional[str]:
+        """Extract text from image using Ollama vision API."""
+        # Base64 encode image
+        # Send to Ollama chat API with vision model
+        # Return extracted text
 
-        if self._ocr_engine is None:
-            try:
-                self._ocr_engine = create_ocr_engine()
-                if self._ocr_engine:
-                    self._ocr_engine.initialize(self.languages, self.use_gpu)
-                    logger.info(f"{self._ocr_engine.name} engine initialized successfully")
-                else:
-                    logger.error("Failed to create OCR engine")
-                    self.enabled = False
-            except Exception as e:
-                logger.error(f"Failed to initialize OCR engine: {e}")
-                self.enabled = False
+    def _extract_text_from_pdf(self, pdf_path: str) -> str:
+        """Extract text from PDF, using vision OCR for scanned pages."""
+        # Convert each page to image
+        # Extract text from each page
+        # Combine results
 
-    # ... rest of the methods remain the same, but replace
-    # self._ocr_engine.readtext() calls with self._ocr_engine.extract_text()
+    def extract_text(self, file_path: str) -> str:
+        """Main entry point for text extraction."""
+        # Determine file type
+        # Route to appropriate extraction method
 ```
 
-### 6. Update Dependencies
+## Migration from Previous Implementation
 
-In `apps/backend/requirements.txt`:
+The previous implementation used a strategy pattern with PaddleOCR and EasyOCR:
 
-```
-# OCR - choose one or both based on deployment
-easyocr>=1.7.0
+### Removed Files
+- `apps/backend/app/services/ocr/` directory (entire strategy pattern)
+- `apps/backend/Dockerfile.paddleocr`
 
-# For PaddleOCR support (better on AMD):
-# paddlepaddle>=2.5.0        # CPU version
-# paddlepaddle-gpu>=2.5.0    # GPU version (CUDA)
-# paddleocr>=2.7.0
-```
+### Removed Dependencies
+- `paddlepaddle`
+- `paddleocr`
+- `easyocr`
 
-Or create optional dependency groups in `pyproject.toml`:
+### Removed Configuration
+- `OCR_PROVIDER` (was: `auto`, `paddleocr`, `easyocr`)
+- `OCR_LANGUAGES` (was: `["en"]`)
+- `OCR_USE_GPU` (was: `true`/`false`)
 
-```toml
-[project.optional-dependencies]
-ocr-easyocr = ["easyocr>=1.7.0"]
-ocr-paddle = ["paddlepaddle>=2.5.0", "paddleocr>=2.7.0"]
-ocr-paddle-gpu = ["paddlepaddle-gpu>=2.5.0", "paddleocr>=2.7.0"]
-```
+### New Configuration
+- `VISION_OCR_MODEL` - Ollama vision model name
+- Uses existing `LLM_BASE_URL` for Ollama connection
 
-## File Structure After Implementation
+## Benefits of Ollama Vision OCR
 
-```
-apps/backend/app/services/
-├── ocr/
-│   ├── __init__.py          # Factory function and exports
-│   ├── base.py              # Abstract OCREngine class
-│   ├── easyocr_engine.py    # EasyOCR implementation
-│   └── paddleocr_engine.py  # PaddleOCR implementation
-└── ocr_service.py           # Main service (uses factory)
-```
+1. **Simplified Dependencies**: No need for large OCR libraries
+2. **Better Context Understanding**: LLMs understand document structure
+3. **Markdown Output**: Clean, structured output format
+4. **Easy Model Switching**: Just change the model name
+5. **Unified Infrastructure**: Same Ollama instance for OCR, embeddings, and LLM
 
-## Configuration Examples
+## Limitations
 
-### For ARM/Apple Silicon (use EasyOCR):
-```bash
-OCR_ENABLED=true
-OCR_PROVIDER=easyocr
-OCR_LANGUAGES=["en"]
-OCR_USE_GPU=false
-```
+1. **Requires Ollama**: External dependency that must be running
+2. **Network Latency**: API calls vs local processing
+3. **Resource Usage**: Vision models need significant RAM/VRAM
+4. **Rate Limiting**: May need to throttle for large batch processing
 
-### For AMD/x86 with better accuracy (use PaddleOCR):
-```bash
-OCR_ENABLED=true
-OCR_PROVIDER=paddleocr
-OCR_LANGUAGES=["en"]
-OCR_USE_GPU=true  # If AMD GPU with ROCm support
-```
+## Troubleshooting
 
-## Key Considerations
+### OCR Returns Empty Text
 
-1. **Language mapping differs**: EasyOCR uses `["en"]` list, PaddleOCR uses `"en"` single string with different codes
-2. **Output format differs**: Each engine returns results in different structures - normalized in the engine implementations
-3. **GPU detection**: PaddleOCR has different GPU requirements (PaddlePaddle vs PyTorch/CUDA)
-4. **Dependencies are large**: Both libraries are substantial - consider making them optional with graceful fallback
-5. **Testing**: Need to test both engines produce consistent output format
+1. Check Ollama is running: `curl http://localhost:11434/api/tags`
+2. Verify vision model is pulled: `ollama pull minicpm-v`
+3. Check Celery worker logs for errors
+4. Verify `LLM_BASE_URL` is accessible from Docker containers
 
-## Implementation Order
+### OCR is Slow
 
-1. Create the `ocr/` directory and `base.py` with the abstract class
-2. Create `easyocr_engine.py` by extracting logic from current `ocr_service.py`
-3. Create `paddleocr_engine.py` with PaddleOCR implementation
-4. Create `__init__.py` with factory function
-5. Update `config.py` to add `OCR_PROVIDER` setting
-6. Update `ocr_service.py` to use the factory
-7. Update requirements/dependencies
-8. Test both engines
+1. Use a faster model (minicpm-v vs llava:13b)
+2. Ensure Ollama has adequate resources
+3. Consider GPU acceleration for Ollama
+4. Increase Celery worker concurrency
 
-## Notes
+### Incomplete Text Extraction
 
-- PaddleOCR generally provides better accuracy for complex documents
-- EasyOCR is more portable and works well on ARM64 (Apple Silicon, Raspberry Pi)
-- Both support multiple languages but with different language codes
-- Consider adding a fallback mechanism if the preferred engine fails to initialize
+1. Check image quality (increase DPI if needed)
+2. Try a different vision model
+3. Check for truncation in Ollama response
+4. Review the extraction prompt
+
+## Future Improvements
+
+Potential enhancements:
+
+1. **Multi-provider Support**: Add OpenAI GPT-4V, Google Gemini Vision
+2. **Batch Processing**: Process multiple pages in parallel
+3. **Caching**: Cache OCR results for identical images
+4. **Quality Detection**: Auto-detect if page needs OCR vs embedded text
+5. **Language Detection**: Auto-detect document language
+
+---
+
+Last Updated: 2026-01-26

@@ -1,6 +1,6 @@
 # Cartulary
 
-A modern digital archive system with OCR processing, semantic search, and AI-powered metadata extraction.
+A modern digital archive system with OCR processing, semantic search, and AI-powered metadata extraction. Available as a web application and native mobile app.
 
 ## Features
 
@@ -14,9 +14,11 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 - **Multi-User Support**: Role-based access control and document sharing
 - **Multiple Import Methods**:
   - Manual upload via web interface with drag-and-drop
+  - Camera capture via mobile app
   - Directory watching for automatic import
   - IMAP mailbox monitoring
 - **Optional OIDC Authentication**: Enterprise SSO support
+- **Cross-Platform**: Web app + native iOS/Android mobile app
 
 ## Technology Stack
 
@@ -29,17 +31,34 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 - **Storage**: Local filesystem or S3-compatible (MinIO)
 - **Real-Time**: WebSocket with Redis pub/sub for live updates
 
-### Frontend
-- **Framework**: Vue 3 (Composition API) + TypeScript
+### Web Frontend (`apps/web`)
+- **Framework**: React 18 with TypeScript
 - **Build Tool**: Vite
-- **UI**: Tailwind CSS + PrimeVue
-- **PDF Viewer**: PDF.js (vue-pdf-embed)
+- **UI**: Tailwind CSS + Radix UI + shadcn/ui components
+- **State Management**: Zustand
+- **PDF Viewer**: react-pdf (PDF.js wrapper)
 - **Real-Time**: WebSocket client with automatic reconnection
+
+### Mobile App (`apps/mobile`)
+- **Framework**: Expo SDK 54 + React Native 0.81
+- **Language**: TypeScript 5.9+ (strict mode)
+- **UI Library**: React Native Paper (Material Design 3)
+- **Navigation**: React Navigation 7.x
+- **State Management**: Zustand
+- **Camera**: Expo Camera with document capture
+- **PDF Viewer**: react-native-pdf
+
+### Shared Package (`packages/shared`)
+- **Services**: API client services shared between web and mobile
+- **Types**: TypeScript type definitions
+- **Hooks**: Shared React hooks
+- **Stores**: Zustand store definitions
 
 ### Infrastructure
 - **Deployment**: Docker Compose
 - **Caching**: Redis
 - **Message Broker**: Redis pub/sub for WebSocket broadcasting
+- **Monorepo**: pnpm workspaces + Turborepo
 
 ## Quick Start
 
@@ -54,6 +73,7 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
     ollama pull nomic-embed-text # For embeddings (recommended)
     ```
 - At least 4GB RAM available for Docker
+- Node.js 18+ and pnpm 8+ (for frontend development)
 
 ### Installation
 
@@ -66,8 +86,7 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 2. **Copy environment files**:
    ```bash
    cp .env.example .env
-   cp backend/.env.example backend/.env
-   cp frontend/.env.example frontend/.env
+   cp apps/backend/.env.example apps/backend/.env
    ```
 
 3. **Configure Ollama connection**:
@@ -85,53 +104,61 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 
 5. **Start the services**:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 6. **Run database migrations**:
    ```bash
-   docker-compose exec backend alembic upgrade head
+   docker compose exec backend alembic upgrade head
    ```
 
 7. **Access the application**:
-   - Frontend: http://localhost:8080
+   - Web Frontend: http://localhost:8080
    - API Documentation: http://localhost:8080/api/v1/docs
 
-## Docker Images
+## Project Structure
 
-Pre-built multi-architecture Docker images are available from GitHub Container Registry:
-
-### Pull Images
-
-```bash
-# Latest (main branch)
-docker pull ghcr.io/tedkulp/cartulary-backend:latest
-docker pull ghcr.io/tedkulp/cartulary-celery-worker:latest
-docker pull ghcr.io/tedkulp/cartulary-web:latest
-
-# Specific version
-docker pull ghcr.io/tedkulp/cartulary-backend:0.7.0
-
-# Specific commit (for debugging)
-docker pull ghcr.io/tedkulp/cartulary-backend:main-136e1e8
 ```
-
-### Supported Architectures
-
-- **linux/amd64** (x86_64)
-- **linux/arm64** (ARM64/aarch64, including Apple Silicon)
-
-### Production Deployment
-
-Use the production docker-compose file with pre-built images:
-
-```bash
-# Pull latest images and start
-docker-compose -f docker-compose.prod.yml up -d
-
-# Or specify a version
-docker-compose -f docker-compose.prod.yml pull
-docker-compose -f docker-compose.prod.yml up -d
+cartulary/
+├── apps/
+│   ├── backend/              # Python FastAPI backend
+│   │   ├── app/
+│   │   │   ├── api/v1/       # API endpoints (including WebSocket)
+│   │   │   ├── core/         # Security, permissions
+│   │   │   ├── models/       # SQLAlchemy ORM models
+│   │   │   ├── schemas/      # Pydantic schemas
+│   │   │   ├── services/     # Business logic (OCR, embeddings, LLM)
+│   │   │   ├── tasks/        # Celery tasks
+│   │   │   └── workers/      # Background workers
+│   │   ├── alembic/          # Database migrations
+│   │   └── tests/            # Backend tests
+│   │
+│   ├── web/                  # React web frontend
+│   │   └── src/
+│   │       ├── components/   # React components (shadcn/ui)
+│   │       ├── pages/        # Page components
+│   │       └── services/     # API client
+│   │
+│   └── mobile/               # React Native mobile app
+│       └── src/
+│           ├── screens/      # Screen components
+│           ├── navigation/   # React Navigation setup
+│           ├── stores/       # Zustand stores
+│           └── services/     # API client
+│
+├── packages/
+│   └── shared/               # Shared TypeScript code
+│       └── src/
+│           ├── services/     # API services
+│           ├── types/        # Type definitions
+│           ├── hooks/        # React hooks
+│           └── stores/       # Zustand stores
+│
+├── docker-compose.yml        # Development environment
+├── docker-compose.prod.yml   # Production environment
+├── pnpm-workspace.yaml       # pnpm workspace config
+├── turbo.json                # Turborepo config
+└── package.json              # Root package.json
 ```
 
 ## Development Setup
@@ -139,7 +166,7 @@ docker-compose -f docker-compose.prod.yml up -d
 ### Backend Development
 
 ```bash
-cd backend
+cd apps/backend
 
 # Create virtual environment
 python -m venv venv
@@ -155,78 +182,105 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-### Frontend Development
+### Web Frontend Development
 
 ```bash
-cd frontend
+# From project root
+pnpm install
+
+# Start all frontend apps in dev mode
+pnpm dev
+
+# Or start just the web app
+cd apps/web
+pnpm dev
+```
+
+### Mobile App Development
+
+```bash
+cd apps/mobile
 
 # Install dependencies
-npm install
+pnpm install
 
-# Start development server
-npm run dev
+# Start Expo development server
+pnpm start
+
+# Run on iOS Simulator
+pnpm ios
+
+# Run on Android Emulator
+pnpm android
 ```
+
+See [apps/mobile/README.md](apps/mobile/README.md) for detailed mobile setup instructions.
 
 ### Running Tests
 
 ```bash
 # Backend tests
-cd backend
+cd apps/backend
 pytest
 
+# Frontend type checking
+pnpm type-check
+
 # Frontend tests
-cd frontend
-npm run test
-npm run test:e2e
+cd apps/web
+pnpm test
 ```
 
-## Project Structure
+## Docker Images
 
+Pre-built multi-architecture Docker images are available from GitHub Container Registry:
+
+### Pull Images
+
+```bash
+# Latest (main branch)
+docker pull ghcr.io/tedkulp/cartulary-backend:latest
+docker pull ghcr.io/tedkulp/cartulary-celery-worker:latest
+docker pull ghcr.io/tedkulp/cartulary-web:latest
+
+# Specific version
+docker pull ghcr.io/tedkulp/cartulary-backend:0.7.0
 ```
-cartulary/
-├── backend/              # Python FastAPI backend
-│   ├── app/
-│   │   ├── api/v1/      # API endpoints (including WebSocket)
-│   │   ├── core/        # Security, permissions
-│   │   ├── models/      # Database models
-│   │   ├── schemas/     # Pydantic schemas
-│   │   ├── services/    # Business logic (OCR, notifications, WebSocket)
-│   │   ├── tasks/       # Celery tasks
-│   │   └── workers/     # Background workers
-│   ├── alembic/         # Database migrations
-│   └── tests/           # Tests
-├── frontend/            # Vue 3 frontend
-│   └── src/
-│       ├── components/  # Vue components
-│       ├── composables/ # Vue composables (WebSocket)
-│       ├── views/       # Page components
-│       ├── stores/      # Pinia stores
-│       └── services/    # API services (including WebSocket)
-├── docker-compose.yml   # Development environment
-└── CLAUDE.md           # Development guide for Claude Code
+
+### Supported Architectures
+
+- **linux/amd64** (x86_64)
+- **linux/arm64** (ARM64/aarch64, including Apple Silicon)
+
+### Production Deployment
+
+Use the production docker-compose file with pre-built images:
+
+```bash
+# Pull latest images and start
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ## Configuration
 
-See [.env.example](.env.example) and [backend/.env.example](backend/.env.example) for all available configuration options.
+See [.env.example](.env.example) and [apps/backend/.env.example](apps/backend/.env.example) for all available configuration options.
 
 ### Key Configuration Options
 
 #### Storage & Processing
 - `STORAGE_TYPE`: `local` or `s3` for file storage
 - `OCR_ENABLED`: Enable/disable OCR processing
-- `OCR_LANGUAGES`: List of languages for OCR (default: `["en"]`)
-- `OCR_USE_GPU`: Enable GPU acceleration for OCR (default: `false`)
+- `VISION_OCR_MODEL`: Ollama vision model for OCR (default: `minicpm-v`)
 
 #### Embeddings & Search
-- `EMBEDDING_PROVIDER`: `local` (sentence-transformers) or `openai`
-- `EMBEDDING_MODEL`: Model name (default: `all-MiniLM-L6-v2` for local)
-- `EMBEDDING_DIMENSION`: Vector dimension (384 for local, 1536 for OpenAI)
+- `EMBEDDING_PROVIDER`: `ollama`, `local` (sentence-transformers), or `openai`
+- `EMBEDDING_MODEL`: Model name (default: `nomic-embed-text` for Ollama)
+- `EMBEDDING_DIMENSION`: Vector dimension (768 for nomic-embed-text, 384 for local, 1536 for OpenAI)
 
 #### LLM Integration
-- `LLM_ENABLED`: Enable optional LLM features
-- `LLM_PROVIDER`: `openai`, `gemini`, or `ollama`
-- `LLM_MODEL`: Model name (e.g., `gpt-4`, `gemini-pro`, `llama2`)
+- `LLM_ENABLED`: Enable optional LLM metadata extraction
+- `LLM_PROVIDER`: `ollama`, `openai`, or `gemini`
+- `LLM_MODEL`: Model name (e.g., `llama2`, `gpt-4`, `gemini-pro`)
 - `LLM_BASE_URL`: Base URL for Ollama (default: `http://localhost:11434`)
 
 #### Authentication
@@ -239,7 +293,6 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 #### Performance Tuning
 - `CELERY_CONCURRENCY`: Number of Celery worker processes (default: 2)
 - `CELERY_MAX_TASKS_PER_CHILD`: Restart workers after N tasks (default: 10)
-- `CELERY_MEMORY_LIMIT`: Max memory per worker (default: 4GB)
 
 #### Real-Time Updates
 - `REDIS_URL`: Redis URL for WebSocket pub/sub and Celery (default: `redis://redis:6379/0`)
@@ -247,7 +300,7 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 ## Implementation Status
 
 ### ✅ Phase 1: Foundation
-- [x] Project scaffolding
+- [x] Project scaffolding (monorepo with pnpm + Turborepo)
 - [x] Docker Compose setup
 - [x] Database schema
 - [x] Authentication system (JWT)
@@ -294,9 +347,8 @@ See [.env.example](.env.example) and [backend/.env.example](backend/.env.example
 - [x] WebSocket real-time updates
 - [x] Server-side sorting and pagination
 - [x] Document statistics dashboard
-- [x] OCR reliability improvements
-- [x] Memory optimization for large images
-- [x] Enhanced error logging
+- [x] React Native mobile app (Expo)
+- [x] Camera document capture
 
 ### 🔲 Phase 8: Production Ready
 - [ ] Comprehensive testing
@@ -315,41 +367,33 @@ Cartulary uses WebSocket connections to provide live updates across all connecte
 - **Multi-Tab Sync**: Changes sync across all browser tabs automatically
 - **Auto Reconnection**: Graceful handling of network interruptions with exponential backoff
 
-**Technical Implementation**:
-- Backend: FastAPI WebSocket endpoint with Redis pub/sub
-- Frontend: Vue 3 composable with automatic reconnection
-- Events: `document.created`, `document.updated`, `document.deleted`, `document.status_changed`
+### Mobile App
+
+The React Native mobile app provides:
+
+- **Camera Capture**: Scan documents directly with your phone camera
+- **Photo Library Import**: Import existing photos as documents
+- **OIDC/SSO Support**: Enterprise authentication with PKCE flow
+- **Offline-Ready Architecture**: Designed for future offline support
+- **Native Performance**: Built with Expo and React Native for smooth UX
+
+See [apps/mobile/README.md](apps/mobile/README.md) for mobile-specific documentation.
 
 ### OCR Optimization
 
 The OCR system automatically optimizes processing for reliability and memory efficiency:
 
-- **Automatic Image Resizing**: Images larger than 2MB are automatically resized to 2048px maximum dimension
-- **Memory Management**: Celery workers limited to 4GB with automatic restarts after 10 tasks
+- **LLM Vision**: Uses Ollama vision models for accurate text extraction
+- **Memory Management**: Celery workers limited to 4GB with automatic restarts
 - **Enhanced Logging**: Detailed error tracking for failed OCR operations
 - **Retry Logic**: Failed tasks automatically retry with exponential backoff
 
-### Server-Side Sorting
-
-All document lists support efficient server-side sorting:
-
-- **Sortable Fields**: Title, creation date, update date, file size, processing status, filename
-- **Performance**: Handles 1000+ documents efficiently with database-level sorting
-- **Pagination**: Support for skip/limit with configurable maximum (default: 1000 documents)
-
-### Document Statistics
-
-Real-time metrics calculated across all accessible documents:
-
-- **Total Documents**: Count of all documents in the system
-- **Total File Size**: Aggregate storage usage with human-readable formatting
-- **Total Words**: Word count extracted from OCR text across all documents
-- **Average File Size**: Mean document size for capacity planning
-
 ## Documentation
 
-- [Development Guide (CLAUDE.md)](CLAUDE.md) - Comprehensive guide for development with Claude Code
-- [Implementation Plan](.claude/plans/deep-sprouting-volcano.md) - Detailed implementation roadmap
+- [Development Guide (CLAUDE.md)](CLAUDE.md) - Comprehensive guide for development
+- [Architecture (ARCHITECTURE.md)](ARCHITECTURE.md) - System architecture overview
+- [Docker Guide (DOCKER.md)](DOCKER.md) - Docker development and deployment
+- [Mobile App (apps/mobile/README.md)](apps/mobile/README.md) - Mobile app documentation
 - [API Documentation](http://localhost:8000/api/v1/docs) - OpenAPI/Swagger docs (when running)
 
 ## Contributing
@@ -367,7 +411,8 @@ Real-time metrics calculated across all accessible documents:
 ## Acknowledgments
 
 - Built with [FastAPI](https://fastapi.tiangolo.com/)
-- Powered by [Vue 3](https://vuejs.org/)
+- Web frontend powered by [React](https://react.dev/) + [Vite](https://vitejs.dev/)
+- Mobile app built with [Expo](https://expo.dev/) + [React Native](https://reactnative.dev/)
 - Vision OCR powered by [Ollama](https://ollama.ai)
 - Vector search with [pgvector](https://github.com/pgvector/pgvector)
 - Real-time updates with [Redis](https://redis.io/)
@@ -378,7 +423,7 @@ Real-time metrics calculated across all accessible documents:
 
 If real-time updates aren't working:
 
-1. Check Redis is running: `docker-compose ps redis`
+1. Check Redis is running: `docker compose ps redis`
 2. Verify WebSocket endpoint is accessible: Check browser console for connection errors
 3. Ensure JWT token is valid: WebSocket authentication uses the same token as API calls
 
@@ -386,27 +431,27 @@ If real-time updates aren't working:
 
 If workers are being killed (OOM):
 
-1. Check memory limits in [docker-compose.yml](docker-compose.yml:84-89)
+1. Check memory limits in [docker-compose.yml](docker-compose.yml)
 2. Reduce `CELERY_CONCURRENCY` if processing very large images
-3. Monitor with: `docker stats cartulary-celery-worker-1`
+3. Monitor with: `docker stats cartulary-celery-worker`
 
 ### OCR Processing Failures
 
 If OCR consistently fails on specific files:
 
-1. Check Celery worker logs: `docker-compose logs celery-worker`
-2. Verify file is readable and not corrupted
-3. Check file size - very large images (>10MB) may need manual resizing
+1. Check Celery worker logs: `docker compose logs celery_worker`
+2. Verify Ollama is running and the vision model is pulled
+3. Check file size - very large images may need manual resizing
 4. Try reprocessing: Click "Reprocess OCR" in document details
 
-### Database Connection Errors
+### Mobile App Connection Issues
 
-If you see `NotImplementedError` in Celery logs:
-
-1. Restart Celery workers: `docker-compose restart celery-worker celery-beat`
-2. This is typically auto-handled by connection pool disposal in tasks
+1. Ensure backend is accessible from your device's network
+2. For Android emulator, use `http://10.0.2.2:8000` as API URL
+3. For physical device, use your computer's local IP address
+4. Check Settings screen in the app to verify API URL
 
 ---
 
-**Version**: 0.7.0 (Phase 7 - Real-Time Updates & Optimizations Complete)
+**Version**: 0.7.0 (Phase 7 Complete)
 **Status**: In Active Development

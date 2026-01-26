@@ -10,10 +10,11 @@ This document contains context, conventions, and best practices for working on t
 - LLM-based metadata extraction (Ollama, OpenAI, Gemini)
 - Multi-user support with RBAC
 - Automated import from directories and IMAP mailboxes
+- Cross-platform: Web app + native iOS/Android mobile app
 
 ## Technology Stack
 
-### Backend
+### Backend (`apps/backend`)
 - **Framework**: FastAPI (Python 3.11+)
 - **Database**: PostgreSQL 16 with pgvector extension
 - **ORM**: SQLAlchemy 2.0+ (async where possible)
@@ -23,15 +24,29 @@ This document contains context, conventions, and best practices for working on t
 - **Embeddings**: Ollama (nomic-embed-text), sentence-transformers (local), or OpenAI API
 - **Storage**: Local filesystem with optional S3/MinIO support
 
-### Frontend
-- **Framework**: Vue 3 (Composition API) with TypeScript
+### Web Frontend (`apps/web`)
+- **Framework**: React 18 with TypeScript
 - **Build Tool**: Vite
-- **State Management**: Pinia
+- **State Management**: Zustand
 - **Styling**: Tailwind CSS
-- **UI Library**: PrimeVue
-- **PDF Viewer**: vue-pdf-embed (PDF.js wrapper)
+- **UI Components**: Radix UI + shadcn/ui
+- **PDF Viewer**: react-pdf (PDF.js wrapper)
+
+### Mobile App (`apps/mobile`)
+- **Framework**: Expo SDK 54 + React Native 0.81
+- **Language**: TypeScript 5.9+ (strict mode)
+- **UI Library**: React Native Paper (Material Design 3)
+- **Navigation**: React Navigation 7.x
+- **State Management**: Zustand
+- **Camera**: Expo Camera
+
+### Shared Package (`packages/shared`)
+- **Purpose**: Shared TypeScript code between web and mobile
+- **Contents**: API services, types, hooks, Zustand stores
+- **Build**: tsup for bundling
 
 ### Infrastructure
+- **Monorepo**: pnpm workspaces + Turborepo
 - **Deployment**: Docker Compose
 - **Caching**: Redis
 - **Authentication**: JWT + optional OIDC
@@ -40,30 +55,55 @@ This document contains context, conventions, and best practices for working on t
 
 ```
 cartulary/
-├── backend/              # Python FastAPI backend
-│   ├── app/
-│   │   ├── api/v1/      # API endpoints (versioned)
-│   │   ├── core/        # Security, permissions, exceptions
-│   │   ├── models/      # SQLAlchemy ORM models
-│   │   ├── schemas/     # Pydantic request/response schemas
-│   │   ├── services/    # Business logic layer
-│   │   ├── tasks/       # Celery tasks
-│   │   ├── workers/     # Long-running background workers
-│   │   └── utils/       # Helper utilities
-│   ├── alembic/         # Database migrations
-│   └── tests/           # Pytest tests
+├── apps/
+│   ├── backend/              # Python FastAPI backend
+│   │   ├── app/
+│   │   │   ├── api/v1/       # API endpoints (versioned)
+│   │   │   ├── core/         # Security, permissions, exceptions
+│   │   │   ├── models/       # SQLAlchemy ORM models
+│   │   │   ├── schemas/      # Pydantic request/response schemas
+│   │   │   ├── services/     # Business logic layer
+│   │   │   ├── tasks/        # Celery tasks
+│   │   │   ├── workers/      # Long-running background workers
+│   │   │   └── utils/        # Helper utilities
+│   │   ├── alembic/          # Database migrations
+│   │   └── tests/            # Pytest tests
+│   │
+│   ├── web/                  # React web frontend
+│   │   ├── src/
+│   │   │   ├── components/   # React components
+│   │   │   │   └── ui/       # shadcn/ui components
+│   │   │   ├── pages/        # Page components
+│   │   │   ├── services/     # API client
+│   │   │   └── lib/          # Utilities
+│   │   └── public/
+│   │
+│   └── mobile/               # React Native mobile app
+│       ├── src/
+│       │   ├── screens/      # Screen components
+│       │   ├── components/   # Reusable components
+│       │   ├── navigation/   # React Navigation setup
+│       │   ├── stores/       # Zustand stores
+│       │   ├── services/     # API client
+│       │   ├── types/        # TypeScript types
+│       │   ├── config/       # App configuration
+│       │   └── utils/        # Utilities
+│       └── assets/
 │
-├── frontend/            # Vue 3 frontend
-│   ├── src/
-│   │   ├── components/  # Reusable Vue components
-│   │   ├── views/       # Page-level components
-│   │   ├── stores/      # Pinia state management
-│   │   ├── services/    # API client services
-│   │   ├── router/      # Vue Router
-│   │   └── types/       # TypeScript type definitions
-│   └── public/
+├── packages/
+│   └── shared/               # Shared TypeScript code
+│       └── src/
+│           ├── services/     # API services (auth, documents, etc.)
+│           ├── types/        # Shared type definitions
+│           ├── hooks/        # React hooks
+│           ├── stores/       # Zustand store definitions
+│           └── utils/        # Shared utilities
 │
-└── docker-compose.yml   # Development environment
+├── docker-compose.yml        # Development environment
+├── docker-compose.prod.yml   # Production environment
+├── pnpm-workspace.yaml       # pnpm workspace config
+├── turbo.json                # Turborepo config
+└── package.json              # Root package.json
 ```
 
 ## Coding Conventions
@@ -155,88 +195,102 @@ async def upload_document(
     return await doc_service.create_document(file, current_user.id)
 ```
 
-### Frontend (TypeScript/Vue)
+### Frontend (TypeScript/React)
 
 #### General Style
 - Use TypeScript strict mode
-- Prefer Composition API over Options API
-- Use `<script setup>` syntax for components
-- Follow Vue 3 style guide
+- Use functional components with hooks
+- Follow React best practices
 
-#### Component Structure
-```vue
-<script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import type { Document } from '@/types/document'
+#### Component Structure (Web - React)
+```tsx
+import { useState, useEffect } from 'react'
+import { Document } from '@cartulary/shared'
 
-// Props
-const props = defineProps<{
-  documentId: string
-}>()
-
-// Emits
-const emit = defineEmits<{
-  updated: [document: Document]
-  deleted: [id: string]
-}>()
-
-// State
-const document = ref<Document | null>(null)
-
-// Computed
-const isLoaded = computed(() => document.value !== null)
-
-// Methods
-const loadDocument = async () => {
-  // Implementation
+interface DocumentCardProps {
+  document: Document
+  onUpdate?: (doc: Document) => void
+  onDelete?: (id: string) => void
 }
 
-// Lifecycle
-onMounted(() => {
-  loadDocument()
+export function DocumentCard({ document, onUpdate, onDelete }: DocumentCardProps) {
+  const [isLoading, setIsLoading] = useState(false)
+
+  // Component logic here
+
+  return (
+    <div className="document-card">
+      {/* Template content */}
+    </div>
+  )
+}
+```
+
+#### Component Structure (Mobile - React Native)
+```tsx
+import React from 'react'
+import { View, StyleSheet } from 'react-native'
+import { Card, Text } from 'react-native-paper'
+import type { Document } from '@/types/api'
+
+interface DocumentCardProps {
+  document: Document
+  onPress?: () => void
+}
+
+export function DocumentCard({ document, onPress }: DocumentCardProps) {
+  return (
+    <Card onPress={onPress} style={styles.card}>
+      <Card.Title title={document.title} />
+      <Card.Content>
+        <Text>{document.filename}</Text>
+      </Card.Content>
+    </Card>
+  )
+}
+
+const styles = StyleSheet.create({
+  card: {
+    marginVertical: 8,
+  },
 })
-</script>
-
-<template>
-  <div class="document-viewer">
-    <!-- Template content -->
-  </div>
-</template>
-
-<style scoped>
-/* Component-specific styles */
-</style>
 ```
 
 #### Naming Conventions
-- **Files**: `PascalCase.vue` for components (e.g., `DocumentCard.vue`)
-- **Composables**: `camelCase.ts` with `use` prefix (e.g., `useDocuments.ts`)
-- **Stores**: `camelCase.ts` (e.g., `documentStore.ts`)
+- **Files**: `PascalCase.tsx` for components (e.g., `DocumentCard.tsx`)
+- **Hooks**: `camelCase.ts` with `use` prefix (e.g., `useDocuments.ts`)
+- **Stores**: `camelCase.ts` (e.g., `authStore.ts`)
 - **Types**: `camelCase.ts` (e.g., `document.ts`)
+- **Services**: `camelCase.service.ts` (e.g., `document.service.ts`)
 
-#### State Management (Pinia)
+#### State Management (Zustand)
 ```typescript
-export const useDocumentStore = defineStore('documents', () => {
-  // State
-  const documents = ref<Document[]>([])
-  const currentDocument = ref<Document | null>(null)
+import { create } from 'zustand'
+import { Document } from '@cartulary/shared'
 
-  // Getters (computed)
-  const documentCount = computed(() => documents.value.length)
+interface DocumentState {
+  documents: Document[]
+  currentDocument: Document | null
+  loading: boolean
+  error: string | null
+  fetchDocuments: () => Promise<void>
+}
 
-  // Actions
-  const fetchDocuments = async () => {
-    const data = await documentService.list()
-    documents.value = data
-  }
-
-  return {
-    documents,
-    currentDocument,
-    documentCount,
-    fetchDocuments
-  }
-})
+export const useDocumentStore = create<DocumentState>((set) => ({
+  documents: [],
+  currentDocument: null,
+  loading: false,
+  error: null,
+  fetchDocuments: async () => {
+    set({ loading: true, error: null })
+    try {
+      const data = await documentService.list()
+      set({ documents: data, loading: false })
+    } catch (err) {
+      set({ error: 'Failed to fetch documents', loading: false })
+    }
+  },
+}))
 ```
 
 #### API Services
@@ -245,6 +299,9 @@ export const useDocumentStore = defineStore('documents', () => {
 - Return typed responses
 
 ```typescript
+import { api } from './api'
+import type { Document, DocumentFilters } from '@cartulary/shared'
+
 export const documentService = {
   async list(filters?: DocumentFilters): Promise<Document[]> {
     const { data } = await api.get<Document[]>('/documents', { params: filters })
@@ -280,10 +337,10 @@ export const documentService = {
 - **When**: Multiple provider support (local vs. S3, OpenAI vs. Ollama)
 - **Example**: `StorageBackend` abstract class with `LocalStorage` and `S3Storage`
 
-### 4. Composition API + Composables (Frontend)
-- **Why**: Reusable logic, better TypeScript support
-- **When**: Shared stateful logic across components
-- **Example**: `useDocuments()`, `useSearch()`, `useAuth()`
+### 4. Shared Package Pattern (Frontend)
+- **Why**: Code reuse between web and mobile apps
+- **When**: API services, types, business logic
+- **Example**: `@cartulary/shared` package with services and types
 
 ## Testing Strategy
 
@@ -304,88 +361,27 @@ async def test_create_document(db_session, mock_file):
     assert doc.processing_status == "pending"
 ```
 
-### Frontend Tests
+### Frontend Tests (Web)
 ```typescript
-// tests/components/DocumentCard.test.ts
+// tests/components/DocumentCard.test.tsx
 import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
-import DocumentCard from '@/components/documents/DocumentCard.vue'
+import { render, screen } from '@testing-library/react'
+import { DocumentCard } from '@/components/DocumentCard'
 
 describe('DocumentCard', () => {
   it('renders document title', () => {
-    const wrapper = mount(DocumentCard, {
-      props: {
-        document: {
+    render(
+      <DocumentCard
+        document={{
           id: '123',
-          title: 'Test Document'
-        }
-      }
-    })
-    expect(wrapper.text()).toContain('Test Document')
+          title: 'Test Document',
+          filename: 'test.pdf',
+        }}
+      />
+    )
+    expect(screen.getByText('Test Document')).toBeInTheDocument()
   })
 })
-```
-
-## Common Patterns
-
-### 1. Document Upload Flow
-```python
-# 1. API Endpoint receives file
-# 2. Calculate checksum
-checksum = await calculate_checksum(file)
-
-# 3. Check for duplicates
-existing = await document_repo.get_by_checksum(checksum)
-if existing:
-    raise HTTPException(status_code=409, detail={
-        "error": "duplicate",
-        "document_id": str(existing.id)
-    })
-
-# 4. Store file
-file_path = await storage.save(file)
-
-# 5. Create DB record
-document = await document_repo.create(...)
-
-# 6. Trigger async processing
-process_document.delay(document.id)
-```
-
-### 2. Hybrid Search
-```python
-# Execute both searches in parallel
-async with asyncio.TaskGroup() as tg:
-    fts_task = tg.create_task(full_text_search(query))
-    vec_task = tg.create_task(vector_search(query))
-
-fts_results = await fts_task
-vec_results = await vec_task
-
-# Combine with Reciprocal Rank Fusion
-combined = reciprocal_rank_fusion(fts_results, vec_results, k=60)
-```
-
-### 3. Error Handling (Frontend)
-```typescript
-const uploadDocument = async (file: File) => {
-  try {
-    const doc = await documentService.upload(file)
-    toast.success('Document uploaded successfully')
-    return doc
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (error.response?.status === 409) {
-        // Handle duplicate
-        const existingId = error.response.data.document_id
-        toast.warning('Document already exists')
-        router.push(`/documents/${existingId}`)
-      } else {
-        toast.error(error.response?.data?.message || 'Upload failed')
-      }
-    }
-  }
-}
 ```
 
 ## Environment Configuration
@@ -429,7 +425,7 @@ SECRET_KEY=your-secret-key-change-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
-# OIDC (Optional - Phase 7)
+# OIDC (Optional)
 OIDC_ENABLED=false
 OIDC_DISCOVERY_URL=https://auth.example.com/.well-known/openid-configuration
 OIDC_CLIENT_ID=your-client-id
@@ -438,9 +434,6 @@ OIDC_REDIRECT_URI=http://localhost:8080/auth/callback
 OIDC_SCOPES=["openid","profile","email"]
 OIDC_AUTO_PROVISION_USERS=true
 OIDC_DEFAULT_ROLE=user
-OIDC_CLAIM_EMAIL=email
-OIDC_CLAIM_NAME=name
-OIDC_CLAIM_GROUPS=groups  # Optional
 ```
 
 **Frontend (.env.local)**
@@ -453,7 +446,7 @@ VITE_API_URL=http://localhost:8000
 ### Creating a Migration
 ```bash
 # Auto-generate migration from model changes
-cd backend
+cd apps/backend
 alembic revision --autogenerate -m "Add document_embeddings table"
 
 # Review the generated migration in alembic/versions/
@@ -503,9 +496,9 @@ Closes #123
 ```
 
 ```
-feat(frontend): add document upload component
+feat(web): add document upload component
 
-- Create DocumentUpload.vue with drag-and-drop
+- Create UploadDialog with drag-and-drop
 - Integrate with upload API endpoint
 - Add progress tracking
 - Handle duplicate error response
@@ -527,62 +520,59 @@ feat(frontend): add document upload component
 - ❌ After fixing linting or formatting issues
 - ❌ In the middle of implementing a feature
 
-**Philosophy:**
-Work should be batched into meaningful commits that represent completed units of work. Bug fixes and corrections made during development should be included in the commit for the feature being worked on, not committed separately.
-
-**Example commit sequence for Phase 1:**
-```bash
-1. chore: initialize project structure and docker-compose
-2. build(backend): set up FastAPI with basic configuration
-3. build(frontend): initialize Vue 3 project with Vite and Tailwind
-4. feat(backend): add database models and initial migration
-5. feat(backend): implement JWT authentication
-6. feat(frontend): create login page and auth store
-7. feat(backend): add document upload endpoint with local storage
-8. feat(frontend): create document upload component
-9. test: add tests for authentication and upload
-10. docs: update README with setup instructions
-```
-
 ## Common Tasks
 
 **IMPORTANT: DO NOT run `docker compose up` or `docker compose build` commands. The user will handle Docker operations manually.**
 
 ### Run Backend Locally (outside Docker)
 ```bash
-cd backend
+cd apps/backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
 ### Run Frontend Locally
 ```bash
-cd frontend
-npm install
-npm run dev
+# From project root
+pnpm install
+pnpm dev
+
+# Or just web
+cd apps/web
+pnpm dev
+```
+
+### Run Mobile App
+```bash
+cd apps/mobile
+pnpm install
+pnpm start  # Start Expo dev server
+pnpm ios    # Run on iOS Simulator
+pnpm android # Run on Android Emulator
 ```
 
 ### Run Tests
 ```bash
 # Backend
-cd backend
+cd apps/backend
 pytest
 
-# Frontend
-cd frontend
-npm run test
-npm run test:e2e
+# Frontend type checking
+pnpm type-check
 ```
 
 ### Create Database Migration
 ```bash
-cd backend
+cd apps/backend
 alembic revision --autogenerate -m "Description"
 alembic upgrade head
 ```
 
-### Restart Celery Worker
-Note: User will handle Docker operations manually.
+### Build Shared Package
+```bash
+cd packages/shared
+pnpm build
+```
 
 ## Troubleshooting
 
@@ -607,8 +597,19 @@ CREATE EXTENSION IF NOT EXISTS vector;
 ### Frontend Build Errors
 ```bash
 # Clear node_modules and reinstall
-rm -rf node_modules package-lock.json
-npm install
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
+```
+
+### Mobile App Issues
+```bash
+# Clear Expo cache
+cd apps/mobile
+pnpm start --clear
+
+# Reinstall dependencies
+rm -rf node_modules
+pnpm install
 ```
 
 ## Performance Optimization
@@ -651,10 +652,13 @@ npm install
 
 ### Documentation
 - FastAPI: https://fastapi.tiangolo.com/
-- Vue 3: https://vuejs.org/
+- React: https://react.dev/
+- React Native: https://reactnative.dev/
+- Expo: https://docs.expo.dev/
 - SQLAlchemy 2.0: https://docs.sqlalchemy.org/
-- Pinia: https://pinia.vuejs.org/
-- PrimeVue: https://primevue.org/
+- Zustand: https://zustand-demo.pmnd.rs/
+- Tailwind CSS: https://tailwindcss.com/
+- React Native Paper: https://callstack.github.io/react-native-paper/
 - pgvector: https://github.com/pgvector/pgvector
 
 ### Key Dependencies
@@ -664,10 +668,8 @@ npm install
 
 ## Implementation Plan
 
-This project follows the detailed implementation plan at [~/.claude/plans/deep-sprouting-volcano.md](~/.claude/plans/deep-sprouting-volcano.md)
-
-**Current Status**: Phase 7 - OIDC & Polish 🚧 IN PROGRESS (OIDC Complete)
-**Next Phase**: Phase 7 (continued) - UI Polish & Admin Features
+**Current Status**: Phase 7 Complete
+**Next Phase**: Phase 8 - Testing & Production
 
 The plan outlines 8 phases:
 1. **Phase 1: Foundation** - Core infrastructure, auth, basic document upload
@@ -676,15 +678,8 @@ The plan outlines 8 phases:
 4. **Phase 4: LLM Integration** - Metadata extraction, auto-tagging (Ollama/OpenAI/Gemini)
 5. **Phase 5: Multi-User & Permissions** - RBAC, document sharing
 6. **Phase 6: Import Sources** - Directory watching, IMAP integration
-7. **Phase 7: OIDC & Polish** - Enterprise auth, UI improvements
+7. **Phase 7: OIDC & Polish** - Enterprise auth, mobile app, UI improvements
 8. **Phase 8: Testing & Production** - Comprehensive testing, deployment
-
-Refer to the full plan for:
-- Detailed project structure and database schema
-- Complete technology stack and dependencies
-- Implementation steps for each phase
-- Key design decisions and rationale
-- Performance considerations and security guidelines
 
 ## Notes for Future Claude Sessions
 
@@ -703,6 +698,7 @@ When starting a new session, provide:
 - **Embeddings**: Ollama by default (nomic-embed-text), with OpenAI/local fallback
 - **LLM Metadata**: Optional feature using Ollama/OpenAI/Gemini
 - **OIDC**: Enterprise SSO support with auto-provisioning, works alongside JWT auth
+- **Mobile**: React Native with Expo for iOS/Android support
 
 ### Areas Requiring Special Attention
 - **Ollama dependency**: OCR and embeddings require Ollama running and accessible
@@ -712,8 +708,9 @@ When starting a new session, provide:
 - **Error handling**: Provide user-friendly messages, log detailed errors
 - **Testing**: Maintain test coverage above 80%
 - **Performance**: Monitor vision OCR and embedding generation time
+- **Mobile**: Test on both iOS and Android platforms
 
 ---
 
-Last Updated: 2026-01-25
-Project Version: 0.7.0-alpha (Phase 7 - OIDC Complete, Ollama Vision OCR Implemented)
+Last Updated: 2026-01-26
+Project Version: 0.7.0 (Phase 7 Complete - Mobile App, Ollama Vision OCR)

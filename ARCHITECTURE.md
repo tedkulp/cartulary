@@ -1,5 +1,34 @@
 # Cartulary Architecture
 
+## Overview
+
+Cartulary is a digital archive system built as a monorepo with three main applications:
+- **Backend**: FastAPI Python server
+- **Web**: React web application
+- **Mobile**: React Native mobile app (Expo)
+
+Plus a shared package for code reuse between web and mobile.
+
+## Monorepo Structure
+
+```
+cartulary/
+├── apps/
+│   ├── backend/          # FastAPI Python backend
+│   ├── web/              # React web frontend
+│   └── mobile/           # React Native mobile app
+├── packages/
+│   └── shared/           # Shared TypeScript code
+├── pnpm-workspace.yaml   # pnpm workspace config
+├── turbo.json            # Turborepo config
+└── package.json          # Root package.json
+```
+
+### Package Manager & Build System
+
+- **pnpm**: Fast, disk-efficient package manager with workspace support
+- **Turborepo**: Build system for monorepos with caching and parallel execution
+
 ## Container Architecture
 
 Cartulary uses a **consolidated container architecture** for simplicity and resource efficiency.
@@ -14,9 +43,11 @@ Cartulary uses a **consolidated container architecture** for simplicity and reso
    - Caching layer
    - Celery message broker
    - Celery result backend
+   - WebSocket pub/sub
 
 3. **`cartulary-backend`** - FastAPI application server
    - HTTP API endpoints
+   - WebSocket endpoints
    - Authentication & authorization
    - Background workers (directory watcher, IMAP watcher)
    - Runs on port 8000
@@ -27,25 +58,147 @@ Cartulary uses a **consolidated container architecture** for simplicity and reso
    - Both worker and beat scheduler run in same container
    - Connects to external Ollama service for OCR and embeddings
 
-5. **`cartulary-frontend`** - React development server
-   - Development only (production serves static files from nginx)
-   - Runs on port 8080
-   - Proxies API requests to backend (not exposed to host)
+5. **`cartulary-web`** - React web frontend
+   - Development: Vite dev server on port 8080
+   - Production: nginx serving static files
+   - Proxies API requests to backend
 
-### Previous Architecture (8 containers)
+### External Dependencies
 
-The system was previously split into 8 separate containers:
-- ❌ `cartulary-celery-beat` - **Merged into celery-worker**
-- ❌ `cartulary-directory-watcher` - **Merged into backend**
-- ❌ `cartulary-imap-watcher` - **Merged into backend**
+- **Ollama** (required): Runs separately, provides vision OCR and embeddings
+  - Not containerized in docker-compose (user manages separately)
+  - Connected via `LLM_BASE_URL` environment variable
+
+## Application Architecture
+
+### Backend (`apps/backend`)
+
+```
+apps/backend/
+├── app/
+│   ├── api/v1/              # API endpoints
+│   │   ├── auth.py          # Authentication
+│   │   ├── documents.py     # Document CRUD
+│   │   ├── search.py        # Search endpoints
+│   │   ├── tags.py          # Tag management
+│   │   ├── websocket.py     # WebSocket endpoint
+│   │   └── ...
+│   ├── core/                # Core utilities
+│   │   ├── security.py      # JWT, password hashing
+│   │   ├── permissions.py   # RBAC
+│   │   └── exceptions.py    # Custom exceptions
+│   ├── models/              # SQLAlchemy ORM models
+│   ├── schemas/             # Pydantic schemas
+│   ├── services/            # Business logic
+│   │   ├── ocr_service.py   # Ollama vision OCR
+│   │   ├── embedding_service.py  # Text embeddings
+│   │   ├── llm_service.py   # LLM metadata extraction
+│   │   ├── search_service.py     # Hybrid search
+│   │   └── ...
+│   ├── tasks/               # Celery tasks
+│   │   ├── celery_app.py    # Celery configuration
+│   │   └── document_tasks.py # Document processing
+│   ├── workers/             # Background workers
+│   │   ├── directory_watcher.py
+│   │   └── imap_watcher.py
+│   ├── background_workers.py # Worker lifecycle management
+│   └── main.py              # FastAPI app
+├── alembic/                 # Database migrations
+└── requirements.txt
+```
+
+### Web Frontend (`apps/web`)
+
+```
+apps/web/
+├── src/
+│   ├── components/          # React components
+│   │   ├── ui/              # shadcn/ui components
+│   │   ├── AppHeader.tsx
+│   │   ├── Layout.tsx
+│   │   └── UploadDialog.tsx
+│   ├── pages/               # Page components
+│   │   ├── DocumentsList.tsx
+│   │   ├── DocumentDetail.tsx
+│   │   ├── Login.tsx
+│   │   └── ...
+│   ├── services/            # API client
+│   │   ├── api.ts           # Axios instance
+│   │   └── index.ts
+│   ├── lib/                 # Utilities
+│   │   └── utils.ts         # cn() helper
+│   ├── App.tsx
+│   └── main.tsx
+├── index.html
+├── vite.config.ts
+└── tailwind.config.js
+```
+
+### Mobile App (`apps/mobile`)
+
+```
+apps/mobile/
+├── src/
+│   ├── screens/             # Screen components
+│   │   ├── auth/            # Login, Register
+│   │   ├── documents/       # Document list, viewer
+│   │   ├── camera/          # Camera capture
+│   │   ├── search/          # Search screen
+│   │   └── settings/        # Settings
+│   ├── components/          # Reusable components
+│   │   └── auth/            # Auth-related components
+│   ├── navigation/          # React Navigation
+│   │   ├── RootNavigator.tsx
+│   │   ├── AuthNavigator.tsx
+│   │   └── MainNavigator.tsx
+│   ├── stores/              # Zustand stores
+│   │   ├── authStore.ts
+│   │   ├── documentStore.ts
+│   │   └── settingsStore.ts
+│   ├── services/            # API client
+│   │   ├── api.ts
+│   │   ├── auth.service.ts
+│   │   └── document.service.ts
+│   ├── types/               # TypeScript types
+│   ├── config/              # App configuration
+│   └── utils/               # Utilities
+├── App.tsx
+├── app.json                 # Expo config
+└── package.json
+```
+
+### Shared Package (`packages/shared`)
+
+```
+packages/shared/
+├── src/
+│   ├── services/            # API services
+│   │   ├── auth.service.ts
+│   │   ├── document.service.ts
+│   │   ├── search.service.ts
+│   │   └── ...
+│   ├── types/               # Type definitions
+│   │   ├── auth.ts
+│   │   ├── document.ts
+│   │   └── ...
+│   ├── hooks/               # React hooks
+│   │   ├── useAuth.ts
+│   │   ├── useDocuments.ts
+│   │   └── ...
+│   ├── stores/              # Zustand stores
+│   │   └── authStore.ts
+│   └── utils/               # Utilities
+├── tsup.config.ts           # Build config
+└── package.json
+```
 
 ## Background Workers
 
 ### Integration with FastAPI
 
-The directory and IMAP watchers now run as **background tasks** within the FastAPI backend process using FastAPI's `lifespan` context manager.
+The directory and IMAP watchers run as **background tasks** within the FastAPI backend process using FastAPI's `lifespan` context manager.
 
-**File:** `backend/app/background_workers.py`
+**File:** `apps/backend/app/background_workers.py`
 
 ```python
 from app.background_workers import lifespan
@@ -85,6 +238,7 @@ ENABLE_IMAP_WATCHER=false
 ```
 ┌─────────────┐
 │   Client    │
+│ (Web/Mobile)│
 └──────┬──────┘
        │ HTTP Upload
        ▼
@@ -96,46 +250,41 @@ ENABLE_IMAP_WATCHER=false
        │ Store file          │ Queue task
        │                     │
        ▼                     ▼
-┌─────────────┐       ┌─────────────┐
-│  Postgres   │       │   Celery    │
-│  (Metadata) │◀──────│   Worker    │
-└─────────────┘       └─────────────┘
-                      (OCR, Embeddings, LLM)
+┌─────────────┐       ┌─────────────┐       ┌─────────────┐
+│  Postgres   │       │   Celery    │──────▶│   Ollama    │
+│  (Metadata) │◀──────│   Worker    │       │ (OCR/Embed) │
+└─────────────┘       └─────────────┘       └─────────────┘
 ```
 
-## Directory Structure
+## Data Flow
 
-```
-cartulary/
-├── backend/
-│   ├── app/
-│   │   ├── api/v1/          # API endpoints
-│   │   ├── background_workers.py  # NEW: Background worker manager
-│   │   ├── core/            # Security, permissions
-│   │   ├── models/          # SQLAlchemy ORM
-│   │   ├── schemas/         # Pydantic schemas
-│   │   ├── services/        # Business logic
-│   │   ├── tasks/           # Celery tasks
-│   │   ├── workers/         # Directory & IMAP watchers
-│   │   └── main.py          # FastAPI app
-│   ├── run_directory_watcher.py  # DEPRECATED: Use ENABLE_DIRECTORY_WATCHER
-│   └── run_imap_watcher.py       # DEPRECATED: Use ENABLE_IMAP_WATCHER
-├── frontend/
-├── docker-compose.yml       # 5 services (consolidated)
-└── docker-compose.yml.backup  # 8 services (old)
-```
+### Document Upload Flow
 
-## Benefits of Consolidated Architecture
+1. Client uploads file via API or mobile camera
+2. Backend calculates SHA-256 checksum
+3. Check for duplicates in database
+4. Store file in local storage or S3
+5. Create document record in PostgreSQL
+6. Queue Celery task for processing
+7. Celery worker:
+   - Extracts text via Ollama vision OCR
+   - Generates embeddings via Ollama
+   - Optionally extracts metadata via LLM
+8. Updates document record with extracted data
+9. Broadcasts update via WebSocket
 
-1. **Fewer Resources:** 5 containers instead of 8 (37% reduction)
-2. **Simpler Management:** Fewer processes to monitor and debug
-3. **Faster Startup:** Less container orchestration overhead
-4. **Easier Development:** Fewer moving parts
-5. **Better Logging:** Background workers log to main backend process
+### Search Flow
+
+1. Client sends search query
+2. Backend performs hybrid search:
+   - Full-text search (PostgreSQL ILIKE)
+   - Semantic search (pgvector cosine similarity)
+3. Results combined via Reciprocal Rank Fusion (RRF)
+4. Return ranked results to client
 
 ## Production Deployment
 
-For production, further consolidation is possible:
+For production, the architecture remains the same but uses:
 
 ```yaml
 services:
@@ -143,10 +292,22 @@ services:
   redis:        # Required
   backend:      # FastAPI + background workers
   celery:       # Worker + beat (merged)
-  # Frontend served as static files from nginx/CDN
+  web:          # nginx serving static files
 ```
 
-Total: **4 containers** in production
+Total: **5 containers** in production (same as development)
+
+Plus external Ollama service managed separately.
+
+## Benefits of This Architecture
+
+1. **Monorepo**: Single repository for all code, easier to maintain
+2. **Code Sharing**: Shared package reduces duplication between web and mobile
+3. **Consolidated Containers**: 5 containers instead of 8 (37% reduction)
+4. **External OCR**: Ollama runs separately, can be shared across services
+5. **Simpler Management**: Fewer processes to monitor and debug
+6. **Faster Startup**: Less container orchestration overhead
+7. **Better Logging**: Background workers log to main backend process
 
 ## Migration Guide
 
@@ -215,25 +376,16 @@ Should show:
 - `celery beat` process (scheduler)
 - `celery worker` process (task executor)
 
-## Future Optimizations
+### Ollama Connection Issues
 
-Potential further consolidation:
+Verify Ollama is accessible:
+```bash
+curl http://localhost:11434/api/tags
+```
 
-1. **Merge Celery into Backend** (development only)
-   - Run Celery worker as background thread in FastAPI
-   - Not recommended for production (resource isolation)
-
-2. **Use Gunicorn with multiple workers** (production)
-   - Background workers run in master process
-   - API workers handle requests
-   - Better resource utilization
-
-3. **Kubernetes Deployment**
-   - Backend as Deployment
-   - Celery as separate Deployment (for scaling)
-   - Background workers as DaemonSet or CronJob
+Check `LLM_BASE_URL` environment variable is set correctly.
 
 ---
 
-Last Updated: 2025-12-26
-Architecture Version: 2.0 (Consolidated, Rebranded as Cartulary)
+Last Updated: 2026-01-26
+Architecture Version: 3.0 (Monorepo with React Web + React Native Mobile)
