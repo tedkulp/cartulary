@@ -75,6 +75,8 @@ export default function DocumentDetail() {
   const [titleEdit, setTitleEdit] = useState('')
   const [editingDescription, setEditingDescription] = useState(false)
   const [descriptionEdit, setDescriptionEdit] = useState('')
+  const [editingOCRText, setEditingOCRText] = useState(false)
+  const [ocrTextEdit, setOCRTextEdit] = useState('')
 
   // Tag management
   const [availableTags, setAvailableTags] = useState<Tag[]>([])
@@ -84,6 +86,7 @@ export default function DocumentDetail() {
   // Confirmation dialogs
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [reprocessDialogOpen, setReprocessDialogOpen] = useState(false)
+  const [reprocessWarningOpen, setReprocessWarningOpen] = useState(false)
   const [embeddingsDialogOpen, setEmbeddingsDialogOpen] = useState(false)
   const [metadataDialogOpen, setMetadataDialogOpen] = useState(false)
 
@@ -140,6 +143,7 @@ export default function DocumentDetail() {
     if (document) {
       setTitleEdit(document.title)
       setDescriptionEdit(document.description || '')
+      setOCRTextEdit(document.ocr_text || '')
     }
   }, [document])
 
@@ -232,11 +236,40 @@ export default function DocumentDetail() {
     }
   }
 
+  const handleSaveOCRText = async () => {
+    if (!document) return
+    try {
+      await documentService.updateOCRText(document.id, { ocr_text: ocrTextEdit })
+      setEditingOCRText(false)
+      await fetchDocument()
+      toast.success('OCR text updated')
+    } catch (error) {
+      toast.error('Failed to update OCR text')
+    }
+  }
+
   const handleReprocess = async () => {
     try {
       await reprocess()
       setReprocessDialogOpen(false)
       toast.success('Reprocessing started')
+    } catch (error: any) {
+      // Check if it's a manual edit warning
+      if (error.response?.data?.error === 'manually_edited') {
+        setReprocessDialogOpen(false)
+        setReprocessWarningOpen(true)
+      } else {
+        toast.error('Failed to reprocess document')
+      }
+    }
+  }
+
+  const handleForceReprocess = async () => {
+    if (!document) return
+    try {
+      await documentService.reprocess(document.id, true)
+      setReprocessWarningOpen(false)
+      toast.success('Reprocessing started (manual edits will be overwritten)')
     } catch (error) {
       toast.error('Failed to reprocess document')
     }
@@ -594,13 +627,51 @@ export default function DocumentDetail() {
       {/* OCR Text */}
       {document.ocr_text && (
         <Card>
-          <CardHeader>
-            <CardTitle>Extracted Text</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="space-y-1">
+              <CardTitle className="flex items-center gap-2">
+                Extracted Text
+                {document.ocr_text_manually_edited && (
+                  <Badge variant="outline" className="text-xs">
+                    Manually Edited
+                  </Badge>
+                )}
+              </CardTitle>
+            </div>
+            {!editingOCRText ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingOCRText(true)}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveOCRText}>
+                  <Check className="mr-2 h-4 w-4" />
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingOCRText(false)
+                    setOCRTextEdit(document.ocr_text || '')
+                  }}
+                >
+                  <X className="mr-2 h-4 w-4" />
+                  Cancel
+                </Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <Textarea
-              value={document.ocr_text}
-              readOnly
+              value={editingOCRText ? ocrTextEdit : document.ocr_text}
+              onChange={(e) => setOCRTextEdit(e.target.value)}
+              readOnly={!editingOCRText}
               rows={15}
               className="font-mono text-sm"
             />
@@ -679,6 +750,30 @@ export default function DocumentDetail() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleReprocess}>Reprocess</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Manual Edit Warning Dialog */}
+      <AlertDialog open={reprocessWarningOpen} onOpenChange={setReprocessWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>OCR Text Was Manually Edited</AlertDialogTitle>
+            <AlertDialogDescription>
+              The extracted text for this document has been manually edited. 
+              Reprocessing will overwrite your changes with new OCR results.
+              <br /><br />
+              Do you want to continue and overwrite the manual edits?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleForceReprocess}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Overwrite and Reprocess
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

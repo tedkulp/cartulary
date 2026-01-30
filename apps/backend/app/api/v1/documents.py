@@ -1,4 +1,5 @@
 """Document API endpoints."""
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
@@ -18,7 +19,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.document import Document
-from app.schemas.document import DocumentResponse, DocumentUpdate
+from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentOCRTextUpdate
 from app.services.document_service import DocumentService
 from app.services.notification_service import notification_service
 
@@ -209,6 +210,18 @@ def reprocess_document(
     document: Document = Depends(require_document_access(PermissionLevel.WRITE))
 ):
     """Reprocess a document - retry OCR (requires write access)."""
+    # Check if OCR text was manually edited
+    if document.ocr_text_manually_edited:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "manually_edited",
+                "message": "OCR text has been manually edited. Reprocessing will overwrite your changes.",
+                "document_id": str(document_id),
+                "requires_confirmation": True
+            }
+        )
+    
     # Trigger reprocessing
     from app.tasks.document_tasks import reprocess_document as reprocess_task
 
@@ -216,6 +229,62 @@ def reprocess_document(
 
     return {
         "message": "Document reprocessing triggered",
+        "document_id": str(document_id),
+        "task_id": task.id
+    }
+
+
+@router.patch(
+    "/{document_id}/ocr-text",
+    response_model=DocumentResponse,
+    summary="Update OCR text",
+    description="Manually update the extracted OCR text for a document"
+)
+async def update_ocr_text(
+    document_id: UUID,
+    ocr_update: DocumentOCRTextUpdate,
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update OCR text manually (requires write access)."""
+    # Update the OCR text and mark as manually edited
+    document.ocr_text = ocr_update.ocr_text
+    document.ocr_text_manually_edited = True
+    document.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(document)
+    
+    # Notify document update
+    await notification_service.notify_document_updated(document.id, current_user.id)
+    
+    return document
+
+
+@router.post(
+    "/{document_id}/reprocess/force",
+    response_model=dict,
+    summary="Force reprocess document",
+    description="Force reprocess document, overwriting any manual edits"
+)
+def force_reprocess_document(
+    document_id: UUID,
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
+    db: Session = Depends(get_db)
+):
+    """Force reprocess a document, overwriting manual edits (requires write access)."""
+    # Reset the manually_edited flag
+    document.ocr_text_manually_edited = False
+    db.commit()
+    
+    # Trigger reprocessing
+    from app.tasks.document_tasks import reprocess_document as reprocess_task
+
+    task = reprocess_task.delay(str(document_id))
+
+    return {
+        "message": "Document reprocessing triggered (manual edits will be overwritten)",
         "document_id": str(document_id),
         "task_id": task.id
     }

@@ -9,7 +9,6 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-
 class OCRService:
     """Service for LLM vision-based text extraction."""
 
@@ -40,6 +39,57 @@ class OCRService:
             except Exception as e:
                 logger.error(f"Failed to initialize Ollama client: {e}")
                 self.enabled = False
+
+    def _clean_llm_response(self, text: str) -> str:
+        """
+        Clean up LLM response by removing thinking tags and other unwanted wrappers.
+        
+        Args:
+            text: Raw text from LLM
+            
+        Returns:
+            Cleaned text
+        """
+        import re
+        
+        # Log what we're cleaning
+        logger.debug(f"Cleaning response, original length: {len(text)}")
+        
+        # FIRST: Remove ALL opening and closing think tags (orphaned or paired)
+        # Remove paired tags with content
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        # Remove any remaining opening tags
+        text = re.sub(r'<think\s*>', '', text, flags=re.IGNORECASE)
+        # Remove any remaining closing tags (THIS IS KEY - handles </think> at start)
+        text = re.sub(r'</\s*think\s*>', '', text, flags=re.IGNORECASE)
+        
+        # Remove any other common thinking/reasoning tags
+        for tag in ['thinking', 'thought', 'analysis', 'reasoning', 'internal', 'scratchpad']:
+            text = re.sub(rf'<{tag}>.*?</{tag}>', '', text, flags=re.DOTALL | re.IGNORECASE)
+            text = re.sub(rf'<{tag}\s*>', '', text, flags=re.IGNORECASE)
+            text = re.sub(rf'</{tag}\s*>', '', text, flags=re.IGNORECASE)
+        
+        # Remove code block markers (both inline and wrapping entire response)
+        text = re.sub(r'```(?:plaintext|markdown|text|md)?', '', text, flags=re.IGNORECASE)
+        
+        # Remove any lines that are just section labels
+        text = re.sub(r'^\*\*(?:Header|Title|Body|Section|Content|Text|Information|Recipient|Personal|Document)(?:\s+\w+)*:\*\*\s*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+        
+        # Remove lines that look like system prompt leakage
+        text = re.sub(r'^(?:You are a|Extract all text|CRITICAL RULES|Format the output|As per instruction).*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+        
+        # Remove lines that say the document is blank/empty
+        text = re.sub(r'^.*(?:document is completely blank|no visible text|output should be completely empty).*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
+        
+        # Remove multiple consecutive blank lines
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        # Strip leading/trailing whitespace
+        text = text.strip()
+        
+        logger.debug(f"After cleaning, length: {len(text)}")
+        
+        return text
 
     def extract_text(self, file_path: str, force_ocr: bool = False) -> Optional[str]:
         """
@@ -107,29 +157,59 @@ class OCRService:
             with open(image_path, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode()
 
-            # Call Ollama vision model
+            # Call Ollama vision model with streaming to get full response
             logger.info(f"Calling Ollama vision model: {self.model}")
-            response = self._ollama_client.chat(
+            
+            raw_text = ""
+            for chunk in self._ollama_client.chat(
                 model=self.model,
-                messages=[{
-                    "role": "user",
-                    "content": """Perform Optical Character Recognition (OCR) on the following image data.
-                    Process all the text on the entire iamge, exactly as it's written. This image is a scan of a document, so try to read every single word all the way to the end of the page.
-                    The output should be the extracted text formatted in Markdown, preserving structure where possible, but do not include any code blocks (```) or anything else that looks like a code block (including plain text).
-                    Do not add any commentary or explanation of the text, just the text itself.
-                    Do no add any headers to the document that aren't written on the page.
-                    Do not tell me that a block of text is a Header, or Body Text, etc. We can gather that through context.
-                    If text is bold, italic, or underlined, it should be preserved in the output.""",
-                    "images": [image_data]
-                }]
-            )
+                stream=True,  # Stream to get complete response
+                messages=[
+                    # {
+                    #     "role": "system",
+                    #     "content": "You are a document scanner. Output only the text you see in Markdown format. Do not add thinking or reasoning text to the output!"
+                    # },
+                    {
+                        "role": "user",
+                        "content": """OUTPUT RULES (follow exactly):
+- Output Markdown only
+- Do not add text that is not in the image
+- Do not explain or comment
+- Do not add code blocks
+- Do not add headers unless they appear in the image
+- Do not add lists unless they appear in the image
+- Do not restructure content
 
-            extracted_text = response["message"]["content"]
-            logger.info(f"Extracted {len(extracted_text)} characters from {image_path}")
-            logger.info(f"Full Ollama response for {image_path}:")
-            logger.info(f"--- BEGIN OLLAMA RESPONSE ---")
+FORMATTING RULES:
+- Preserve wording exactly
+- Preserve order exactly
+- Preserve bold, italics, and underlines as seen
+- Preserve existing headers using # only if present
+- Preserve existing lists using the same list style
+- Convert tables to Markdown tables (not HTML)
+
+TASK:
+Extract all visible text from the image exactly as it appears.
+""",
+                        "images": [image_data]
+                    }
+                ]
+            ):
+                raw_text += chunk['message']['content']
+            
+            # Log the raw response first
+            logger.info(f"Raw Ollama response ({len(raw_text)} chars):")
+            logger.info(f"--- BEGIN RAW RESPONSE ---")
+            logger.info(raw_text)
+            logger.info(f"--- END RAW RESPONSE ---")
+            
+            # Clean up the response - remove thinking tags and other wrappers
+            extracted_text = self._clean_llm_response(raw_text)
+            
+            logger.info(f"After cleaning ({len(extracted_text)} chars):")
+            logger.info(f"--- BEGIN CLEANED RESPONSE ---")
             logger.info(extracted_text)
-            logger.info(f"--- END OLLAMA RESPONSE ---")
+            logger.info(f"--- END CLEANED RESPONSE ---")
 
             return extracted_text
 

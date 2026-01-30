@@ -1,5 +1,5 @@
 import type { AxiosInstance } from 'axios'
-import type { Document, DocumentUploadData } from '../types/document'
+import type { Document, DocumentUploadData, DocumentOCRTextUpdate } from '../types/document'
 
 /**
  * Document service with dependency injection for platform-agnostic usage
@@ -48,8 +48,16 @@ export class DocumentService {
     await this.api.delete(`/api/v1/documents/${id}`)
   }
 
-  async reprocess(id: string): Promise<void> {
-    await this.api.post(`/api/v1/documents/${id}/reprocess`)
+  async updateOCRText(id: string, data: DocumentOCRTextUpdate): Promise<Document> {
+    const response = await this.api.patch<Document>(`/api/v1/documents/${id}/ocr-text`, data)
+    return response.data
+  }
+
+  async reprocess(id: string, force = false): Promise<void> {
+    const endpoint = force 
+      ? `/api/v1/documents/${id}/reprocess/force`
+      : `/api/v1/documents/${id}/reprocess`
+    await this.api.post(endpoint)
   }
 
   async regenerateEmbeddings(id: string): Promise<void> {

@@ -29,6 +29,7 @@ export interface Document {
   checksum: string
   processing_status: string
   ocr_text?: string
+  ocr_text_manually_edited: boolean
   created_at: string
   updated_at: string
   uploaded_by?: string
@@ -44,4 +45,8 @@ export interface Document {
 export interface DocumentUploadData {
   file: File
   title?: string
+}
+
+export interface DocumentOCRTextUpdate {
+  ocr_text: string
 }

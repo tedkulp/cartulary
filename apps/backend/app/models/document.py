@@ -39,6 +39,7 @@ class Document(Base):
 
     # Extracted content
     ocr_text = Column(Text)  # Full OCR extracted text
+    ocr_text_manually_edited = Column(Boolean, default=False, nullable=False)  # Track if OCR text was manually edited
     ocr_language = Column(String(10))  # Detected language
     page_count = Column(Integer)
 

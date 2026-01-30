@@ -29,6 +29,12 @@ class DocumentUpdate(BaseModel):
     is_public: Optional[bool] = None
 
 
+class DocumentOCRTextUpdate(BaseModel):
+    """Schema for updating OCR text."""
+
+    ocr_text: str = Field(..., description="Updated OCR text")
+
+
 class DocumentResponse(DocumentBase):
     """Schema for document response."""
 
@@ -40,6 +46,7 @@ class DocumentResponse(DocumentBase):
     checksum: str
     processing_status: str
     ocr_text: Optional[str] = None
+    ocr_text_manually_edited: bool = False
     created_at: datetime
     updated_at: datetime
     uploaded_by: Optional[UUID] = None
