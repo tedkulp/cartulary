@@ -11,7 +11,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import User, Role
 from app.schemas.auth import Token, UserLogin, UserRegister
 from app.schemas.user import UserResponse
 
@@ -42,6 +42,9 @@ class AuthService:
         if existing_user:
             raise DuplicateError("Email already registered")
 
+        # First user becomes admin
+        is_first_user = self.db.query(User).count() == 0
+
         # Create new user
         hashed_password = get_password_hash(user_data.password)
         db_user = User(
@@ -49,10 +52,16 @@ class AuthService:
             hashed_password=hashed_password,
             full_name=user_data.full_name,
             is_active=True,
-            is_superuser=False,
+            is_superuser=is_first_user,
         )
 
         self.db.add(db_user)
+        self.db.flush()  # Get db_user.id without committing
+
+        if is_first_user:
+            all_roles = self.db.query(Role).all()
+            db_user.roles = all_roles
+
         self.db.commit()
         self.db.refresh(db_user)
 

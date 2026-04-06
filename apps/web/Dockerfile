@@ -26,8 +26,8 @@ EXPOSE 8080
 # Set working directory to web app
 WORKDIR /app
 
-# Default command
-CMD ["sh", "-c", "cd /app && pnpm --filter @cartulary/web dev --host"]
+# Default command: watch shared package for changes and run web dev server
+CMD ["sh", "-c", "pnpm --filter @cartulary/shared dev & pnpm --filter @cartulary/web dev --host"]
 
 # Production build stage
 FROM node:20-alpine AS builder

@@ -49,6 +49,7 @@ services:
     # ports:
     #   - "8000:8000"
     environment:
+      - PYTHONUNBUFFERED=1
       - RUN_MIGRATIONS=true
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
@@ -76,6 +77,7 @@ services:
       # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
+      - OCR_FORMATTER_MODEL=${OCR_FORMATTER_MODEL:-qwen2.5:7b-instruct-q4_K_M}
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
       - ENABLE_IMAP_WATCHER=${ENABLE_IMAP_WATCHER:-false}
@@ -99,8 +101,9 @@ services:
     volumes:
       - ./apps/backend:/app
       - ./document_storage:/data/documents
-      - huggingface_models:/root/.cache/huggingface  # Cache sentence-transformers models (if using local embeddings)
+      - huggingface_models:/root/.cache/huggingface # Cache sentence-transformers models (if using local embeddings)
     environment:
+      - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql://cartulary:${DB_PASSWORD:-changeme}@postgres:5432/cartulary
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -122,7 +125,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G  # Reduced from 6G since we're not loading OCR models locally
+          memory: 4G # Reduced from 6G since we're not loading OCR models locally
         reservations:
           memory: 1G
     depends_on:

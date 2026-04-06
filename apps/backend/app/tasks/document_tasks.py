@@ -1,5 +1,6 @@
 """Celery tasks for document processing."""
 import logging
+import random
 from uuid import UUID
 from typing import List
 
@@ -364,6 +365,40 @@ def generate_embeddings(self, document_id: str) -> dict:
         db.close()
 
 
+def _random_tag_color() -> str:
+    """Generate a random mid-range hex color suitable for tag backgrounds.
+
+    Uses HSL with:
+      - Hue: full 0-360° range for variety
+      - Saturation: 40-70% (vivid enough to read, not garish)
+      - Lightness: 35-60% (dark enough for white text, light enough to not look black)
+    """
+    h = random.randint(0, 359)
+    s = random.randint(40, 70) / 100.0
+    l = random.randint(35, 60) / 100.0  # noqa: E741
+
+    # HSL -> RGB conversion
+    c = (1 - abs(2 * l - 1)) * s
+    x = c * (1 - abs((h / 60) % 2 - 1))
+    m = l - c / 2
+
+    if h < 60:
+        r, g, b = c, x, 0
+    elif h < 120:
+        r, g, b = x, c, 0
+    elif h < 180:
+        r, g, b = 0, c, x
+    elif h < 240:
+        r, g, b = 0, x, c
+    elif h < 300:
+        r, g, b = x, 0, c
+    else:
+        r, g, b = c, 0, x
+
+    r, g, b = int((r + m) * 255), int((g + m) * 255), int((b + m) * 255)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 @celery_app.task(bind=True, name="tasks.extract_metadata", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
 def extract_metadata(self, document_id: str):
     """
@@ -489,18 +524,27 @@ def extract_metadata(self, document_id: str):
 
         # Handle suggested tags
         suggested_tags = metadata.get("suggested_tags", [])
-        if suggested_tags:
-            logger.info(f"Processing {len(suggested_tags)} suggested tags")
 
-            # Get document owner_id
-            owner_result = db.execute(
-                sql_text("SELECT owner_id FROM documents WHERE id = :doc_id"),
+        # Get document owner_id (needed for tag creation and notification)
+        owner_result = db.execute(
+            sql_text("SELECT owner_id FROM documents WHERE id = :doc_id"),
+            {"doc_id": document_id}
+        )
+        owner_row = owner_result.fetchone()
+        owner_id = str(owner_row[0]) if owner_row else None
+
+        if owner_id:
+            # Replace existing tags entirely — remove all current associations first
+            db.execute(
+                sql_text("DELETE FROM document_tags WHERE document_id = :doc_id"),
                 {"doc_id": document_id}
             )
-            owner_row = owner_result.fetchone()
-            owner_id = str(owner_row[0]) if owner_row else None
+            db.commit()
+            logger.info(f"Cleared existing tags for document {document_id}")
 
-            if owner_id:
+            if suggested_tags:
+                logger.info(f"Processing {len(suggested_tags)} suggested tags")
+
                 for tag_name in suggested_tags:
                     # Clean tag name
                     tag_name = tag_name.strip().lower()[:50]
@@ -523,40 +567,30 @@ def extract_metadata(self, document_id: str):
                             tag_id = str(uuid.uuid4())
                             db.execute(
                                 sql_text(
-                                    "INSERT INTO tags (id, name, created_by, created_at) VALUES (:id, :name, :created_by, NOW())"
+                                    "INSERT INTO tags (id, name, color, created_by, created_at) VALUES (:id, :name, :color, :created_by, NOW())"
                                 ),
-                                {"id": tag_id, "name": tag_name, "created_by": owner_id}
+                                {"id": tag_id, "name": tag_name, "color": _random_tag_color(), "created_by": owner_id}
                             )
                             db.commit()
                             logger.info(f"Created new tag: {tag_name}")
 
-                        # Check if document-tag association exists
-                        assoc_result = db.execute(
+                        # Add tag to document
+                        db.execute(
                             sql_text(
-                                "SELECT 1 FROM document_tags WHERE document_id = :doc_id AND tag_id = :tag_id"
+                                "INSERT INTO document_tags (document_id, tag_id) VALUES (:doc_id, :tag_id)"
                             ),
                             {"doc_id": document_id, "tag_id": tag_id}
                         )
-
-                        if not assoc_result.fetchone():
-                            # Add tag to document
-                            db.execute(
-                                sql_text(
-                                    "INSERT INTO document_tags (document_id, tag_id) VALUES (:doc_id, :tag_id)"
-                                ),
-                                {"doc_id": document_id, "tag_id": tag_id}
-                            )
-                            db.commit()
-                            logger.info(f"Added tag '{tag_name}' to document")
+                        db.commit()
+                        logger.info(f"Added tag '{tag_name}' to document")
 
                     except Exception as tag_error:
                         logger.error(f"Error processing tag '{tag_name}': {tag_error}")
                         db.rollback()
                         continue
 
-            # Notify about document update after tags are added
-            if suggested_tags:
-                notification_service.notify_document_updated_sync(UUID(document_id), UUID(owner_id))
+            # Notify about document update after tags are replaced
+            notification_service.notify_document_updated_sync(UUID(document_id), UUID(owner_id))
 
         return {
             "status": "success",

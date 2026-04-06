@@ -39,7 +39,7 @@ class ChatService:
         user_id: UUID,
         conversation_history: Optional[List[ChatMessage]] = None,
         num_chunks: int = 5,
-        similarity_threshold: float = 0.3,
+        similarity_threshold: float = 0.5,
     ) -> ChatResponse:
         """
         Answer a question about documents using RAG.
@@ -56,10 +56,20 @@ class ChatService:
         """
         logger.info(f"Processing chat question for user {user_id}: {question[:100]}...")
 
-        # Step 1: Retrieve relevant document chunks using vector search
+        # Step 1: Rewrite follow-up questions into standalone search queries
+        history_dicts = None
+        if conversation_history:
+            history_dicts = [
+                {"role": msg.role, "content": msg.content}
+                for msg in conversation_history
+            ]
+
+        search_query = self.llm_service.rewrite_query(question, history_dicts)
+
+        # Step 2: Retrieve relevant document chunks using vector search
         try:
             search_results = self.vector_search_service.vector_search(
-                query=question,
+                query=search_query,
                 user_id=user_id,
                 limit=num_chunks,
                 similarity_threshold=similarity_threshold,
@@ -105,14 +115,6 @@ class ChatService:
                 seen_doc_ids.add(doc.id)
 
         logger.info(f"Using {len(chunks)} chunks from {len(sources)} documents")
-
-        # Step 3: Convert conversation history to dict format for LLM
-        history_dicts = None
-        if conversation_history:
-            history_dicts = [
-                {"role": msg.role, "content": msg.content}
-                for msg in conversation_history
-            ]
 
         # Step 4: Generate answer using LLM
         try:

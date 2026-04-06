@@ -3,6 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.permissions import (
@@ -186,7 +187,7 @@ async def list_roles(
     db: Session = Depends(get_db)
 ):
     """List all roles (requires roles:read permission)."""
-    roles = db.query(Role).all()
+    roles = db.query(Role).options(selectinload(Role.permissions)).all()
     return roles
 
 
@@ -197,7 +198,7 @@ async def get_role(
     db: Session = Depends(get_db)
 ):
     """Get a specific role by ID."""
-    role = db.query(Role).filter(Role.id == role_id).first()
+    role = db.query(Role).options(selectinload(Role.permissions)).filter(Role.id == role_id).first()
     if not role:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -227,11 +228,14 @@ async def create_role(
         description=role_data.description
     )
 
+    if role_data.permission_ids:
+        permissions = db.query(Permission).filter(Permission.id.in_(role_data.permission_ids)).all()
+        db_role.permissions = permissions
+
     db.add(db_role)
     db.commit()
-    db.refresh(db_role)
 
-    return db_role
+    return db.query(Role).options(selectinload(Role.permissions)).filter(Role.id == db_role.id).first()
 
 
 @router.patch("/roles/{role_id}", response_model=RoleResponse)
@@ -266,10 +270,13 @@ async def update_role(
     if role_data.description is not None:
         role.description = role_data.description
 
-    db.commit()
-    db.refresh(role)
+    if role_data.permission_ids is not None:
+        permissions = db.query(Permission).filter(Permission.id.in_(role_data.permission_ids)).all()
+        role.permissions = permissions
 
-    return role
+    db.commit()
+
+    return db.query(Role).options(selectinload(Role.permissions)).filter(Role.id == role_id).first()
 
 
 @router.delete("/roles/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -279,11 +286,19 @@ async def delete_role(
     db: Session = Depends(get_db)
 ):
     """Delete a role (requires roles:delete permission)."""
+    CORE_ROLES = {"user", "admin", "superuser"}
+
     role = db.query(Role).filter(Role.id == role_id).first()
     if not role:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role not found"
+        )
+
+    if role.name in CORE_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete core role '{role.name}'"
         )
 
     db.delete(role)
@@ -303,6 +318,28 @@ async def list_permissions(
 
 
 # ===== Role-Permission Assignments =====
+
+class RolePermissionsUpdate(BaseModel):
+    permission_ids: List[UUID]
+
+
+@router.put("/roles/{role_id}/permissions", response_model=RoleResponse, status_code=status.HTTP_200_OK)
+async def set_role_permissions(
+    role_id: UUID,
+    data: RolePermissionsUpdate,
+    current_user: User = Depends(require_permission(SystemPermissions.ROLES_WRITE)),
+    db: Session = Depends(get_db)
+):
+    """Replace a role's full permission set in one call."""
+    role = db.query(Role).options(selectinload(Role.permissions)).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found")
+
+    permissions = db.query(Permission).filter(Permission.id.in_(data.permission_ids)).all()
+    role.permissions = permissions
+    db.commit()
+    db.refresh(role)
+    return role
 
 @router.post("/roles/{role_id}/permissions/{permission_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def add_permission_to_role(
@@ -384,6 +421,12 @@ async def assign_role_to_user(
             detail="Role not found"
         )
 
+    if user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot modify roles on a superuser account"
+        )
+
     # Add role to user if not already assigned
     if role not in user.roles:
         user.roles.append(role)
@@ -410,6 +453,12 @@ async def remove_role_from_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Role not found"
+        )
+
+    if user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot modify roles on a superuser account"
         )
 
     # Remove role from user

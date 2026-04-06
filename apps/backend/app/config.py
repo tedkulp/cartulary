@@ -59,9 +59,10 @@ class Settings(BaseSettings):
             return v
         return []
 
-    # Vision OCR (Phase 2 - LLM-based)
+    # Vision OCR (Phase 2 - LLM-based, two-pass system)
     OCR_ENABLED: bool = False
-    VISION_OCR_MODEL: str = "minicpm-v"  # Ollama vision model for text extraction
+    VISION_OCR_MODEL: str = "minicpm-v"  # Ollama vision model for text extraction (pass 1)
+    OCR_FORMATTER_MODEL: str = "qwen2.5:7b-instruct-q4_K_M"  # Ollama text model for formatting (pass 2)
 
     # Embeddings (Phase 3)
     EMBEDDING_ENABLED: bool = False  # Enable/disable automatic embedding generation

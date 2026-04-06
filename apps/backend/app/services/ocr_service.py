@@ -10,12 +10,13 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 class OCRService:
-    """Service for LLM vision-based text extraction."""
+    """Service for LLM vision-based text extraction with two-pass processing."""
 
     def __init__(self):
         """Initialize OCR service."""
         self.enabled = settings.OCR_ENABLED
-        self.model = settings.VISION_OCR_MODEL
+        self.vision_model = settings.VISION_OCR_MODEL
+        self.formatter_model = settings.OCR_FORMATTER_MODEL
         self.base_url = settings.LLM_BASE_URL or "http://localhost:11434"
         self._ollama_client = None
 
@@ -30,8 +31,8 @@ class OCRService:
                 # Create client with configured base URL
                 self._ollama_client = ollama.Client(host=self.base_url)
                 logger.info(
-                    f"✅ Ollama vision OCR initialized successfully "
-                    f"(model={self.model}, host={self.base_url})"
+                    f"✅ Ollama OCR initialized successfully "
+                    f"(vision={self.vision_model}, formatter={self.formatter_model}, host={self.base_url})"
                 )
             except ImportError:
                 logger.error("Ollama library not installed. Install with: pip install ollama")
@@ -39,57 +40,6 @@ class OCRService:
             except Exception as e:
                 logger.error(f"Failed to initialize Ollama client: {e}")
                 self.enabled = False
-
-    def _clean_llm_response(self, text: str) -> str:
-        """
-        Clean up LLM response by removing thinking tags and other unwanted wrappers.
-        
-        Args:
-            text: Raw text from LLM
-            
-        Returns:
-            Cleaned text
-        """
-        import re
-        
-        # Log what we're cleaning
-        logger.debug(f"Cleaning response, original length: {len(text)}")
-        
-        # FIRST: Remove ALL opening and closing think tags (orphaned or paired)
-        # Remove paired tags with content
-        text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        # Remove any remaining opening tags
-        text = re.sub(r'<think\s*>', '', text, flags=re.IGNORECASE)
-        # Remove any remaining closing tags (THIS IS KEY - handles </think> at start)
-        text = re.sub(r'</\s*think\s*>', '', text, flags=re.IGNORECASE)
-        
-        # Remove any other common thinking/reasoning tags
-        for tag in ['thinking', 'thought', 'analysis', 'reasoning', 'internal', 'scratchpad']:
-            text = re.sub(rf'<{tag}>.*?</{tag}>', '', text, flags=re.DOTALL | re.IGNORECASE)
-            text = re.sub(rf'<{tag}\s*>', '', text, flags=re.IGNORECASE)
-            text = re.sub(rf'</{tag}\s*>', '', text, flags=re.IGNORECASE)
-        
-        # Remove code block markers (both inline and wrapping entire response)
-        text = re.sub(r'```(?:plaintext|markdown|text|md)?', '', text, flags=re.IGNORECASE)
-        
-        # Remove any lines that are just section labels
-        text = re.sub(r'^\*\*(?:Header|Title|Body|Section|Content|Text|Information|Recipient|Personal|Document)(?:\s+\w+)*:\*\*\s*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
-        
-        # Remove lines that look like system prompt leakage
-        text = re.sub(r'^(?:You are a|Extract all text|CRITICAL RULES|Format the output|As per instruction).*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
-        
-        # Remove lines that say the document is blank/empty
-        text = re.sub(r'^.*(?:document is completely blank|no visible text|output should be completely empty).*$', '', text, flags=re.MULTILINE | re.IGNORECASE)
-        
-        # Remove multiple consecutive blank lines
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        
-        # Strip leading/trailing whitespace
-        text = text.strip()
-        
-        logger.debug(f"After cleaning, length: {len(text)}")
-        
-        return text
 
     def extract_text(self, file_path: str, force_ocr: bool = False) -> Optional[str]:
         """
@@ -129,16 +79,19 @@ class OCRService:
 
     def _extract_text_from_image(self, image_path: str) -> Optional[str]:
         """
-        Extract text from a single image using LLM vision.
+        Extract text from a single image using two-pass LLM processing.
+        
+        Pass 1: Vision model extracts raw text from image
+        Pass 2: Text model formats raw text into proper markdown
 
         Args:
             image_path: Path to image file
 
         Returns:
-            Extracted text
+            Extracted and formatted text
         """
         try:
-            logger.info(f"Starting LLM vision text extraction for: {image_path}")
+            logger.info(f"Starting two-pass OCR for: {image_path}")
 
             # Check file exists and is readable
             file_path_obj = Path(image_path)
@@ -157,61 +110,81 @@ class OCRService:
             with open(image_path, "rb") as f:
                 image_data = base64.b64encode(f.read()).decode()
 
-            # Call Ollama vision model with streaming to get full response
-            logger.info(f"Calling Ollama vision model: {self.model}")
+            # PASS 1: Extract raw text with vision model
+            logger.info(f"Pass 1: Calling vision model {self.vision_model} for raw text extraction")
             
             raw_text = ""
             for chunk in self._ollama_client.chat(
-                model=self.model,
-                stream=True,  # Stream to get complete response
+                model=self.vision_model,
+                stream=True,
                 messages=[
-                    # {
-                    #     "role": "system",
-                    #     "content": "You are a document scanner. Output only the text you see in Markdown format. Do not add thinking or reasoning text to the output!"
-                    # },
                     {
                         "role": "user",
-                        "content": """OUTPUT RULES (follow exactly):
-- Output Markdown only
-- Do not add text that is not in the image
-- Do not explain or comment
-- Do not add code blocks
-- Do not add headers unless they appear in the image
-- Do not add lists unless they appear in the image
-- Do not restructure content
+                        "content": """TASK:
+Extract all visible text from the image.
 
-FORMATTING RULES:
-- Preserve wording exactly
-- Preserve order exactly
-- Preserve bold, italics, and underlines as seen
-- Preserve existing headers using # only if present
-- Preserve existing lists using the same list style
-- Convert tables to Markdown tables (not HTML)
-
-TASK:
-Extract all visible text from the image exactly as it appears.
-""",
+RULES:
+- Output plain text only
+- Preserve wording and order
+- No formatting
+- No explanations""",
                         "images": [image_data]
                     }
                 ]
             ):
                 raw_text += chunk['message']['content']
             
-            # Log the raw response first
-            logger.info(f"Raw Ollama response ({len(raw_text)} chars):")
-            logger.info(f"--- BEGIN RAW RESPONSE ---")
+            logger.info(f"Pass 1 complete: Extracted {len(raw_text)} chars")
+            logger.info(f"--- BEGIN RAW EXTRACTION ---")
             logger.info(raw_text)
-            logger.info(f"--- END RAW RESPONSE ---")
+            logger.info(f"--- END RAW EXTRACTION ---")
             
-            # Clean up the response - remove thinking tags and other wrappers
-            extracted_text = self._clean_llm_response(raw_text)
+            if not raw_text or len(raw_text.strip()) < 10:
+                logger.warning("Pass 1 returned insufficient text, skipping Pass 2")
+                return raw_text.strip()
             
-            logger.info(f"After cleaning ({len(extracted_text)} chars):")
-            logger.info(f"--- BEGIN CLEANED RESPONSE ---")
-            logger.info(extracted_text)
-            logger.info(f"--- END CLEANED RESPONSE ---")
+            # PASS 2: Format raw text into proper markdown
+            logger.info(f"Pass 2: Calling formatter model {self.formatter_model} for markdown formatting")
+            
+            formatted_text = ""
+            for chunk in self._ollama_client.chat(
+                model=self.formatter_model,
+                stream=True,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a text formatter. You do not explain."
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""OUTPUT RULES:
+- Output Markdown only
+- Convert html output to markdown if possible
+- Do not created nested markdown code blocks. It should be a single markdown document comprised of all pages.
+- Strip out any think tags
+- Do not add, remove, or reorder content
+- Do not add headers unless present
+- Do not add lists unless present
+- Do not add code blocks
+- Do not explain or comment
+- Do not return any text if the page is empty or has no meaningful content -- do not explain why you didn't return any text
 
-            return extracted_text
+TASK:
+Convert the following text into Markdown while preserving structure exactly.
+
+TEXT:
+{raw_text}"""
+                    }
+                ]
+            ):
+                formatted_text += chunk['message']['content']
+            
+            logger.info(f"Pass 2 complete: Formatted to {len(formatted_text)} chars")
+            logger.info(f"--- BEGIN FORMATTED TEXT ---")
+            logger.info(formatted_text)
+            logger.info(f"--- END FORMATTED TEXT ---")
+
+            return formatted_text.strip()
 
         except Exception as e:
             logger.error(f"Failed to extract text from image {image_path}: {type(e).__name__}: {str(e)}", exc_info=True)

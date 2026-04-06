@@ -75,9 +75,9 @@ class LLMService:
 
         elif self.provider == LLMProvider.OLLAMA:
             try:
-                import ollama
+                from ollama import Client
 
-                return ollama
+                return Client(host=self.base_url)
             except ImportError:
                 raise ImportError(
                     "Ollama library not installed. Install with: pip install ollama"
@@ -91,37 +91,43 @@ class LLMService:
         """
         Extract metadata from document text using LLM.
 
+        Uses a two-step approach for tags:
+        1. Extract metadata and generate tags with NO knowledge of existing tags
+           (prevents anchoring bias where the LLM shoehorns irrelevant existing tags)
+        2. Reconcile generated tags against existing tags, merging only true synonyms
+
         Args:
             text: Document text (OCR'd or extracted)
             filename: Original filename (optional, provides context)
-            existing_tags: List of existing tag names to prefer (optional)
+            existing_tags: List of existing tag names to reconcile against (optional)
 
         Returns:
-            Dictionary containing extracted metadata:
-            {
-                "title": str,
-                "correspondent": str,
-                "document_date": str (ISO format),
-                "document_type": str,
-                "summary": str,
-                "suggested_tags": List[str]
-            }
+            Dictionary containing extracted metadata
         """
-        prompt = self._build_extraction_prompt(text, filename, existing_tags)
+        # Step 1: Extract metadata without existing tags (no anchoring bias)
+        prompt = self._build_extraction_prompt(text, filename)
 
         try:
             response_text = self._call_llm(prompt)
             metadata = self._parse_metadata_response(response_text)
             logger.info(f"Extracted metadata using {self.provider}: {metadata}")
+
+            # Step 2: Reconcile generated tags against existing tags
+            if existing_tags and metadata.get("suggested_tags"):
+                metadata["suggested_tags"] = self._reconcile_tags(
+                    metadata["suggested_tags"], existing_tags
+                )
+                logger.info(f"Reconciled tags: {metadata['suggested_tags']}")
+
             return metadata
         except Exception as e:
             logger.error(f"Failed to extract metadata with {self.provider}: {e}")
             return self._get_empty_metadata()
 
     def _build_extraction_prompt(
-        self, text: str, filename: Optional[str] = None, existing_tags: Optional[List[str]] = None
+        self, text: str, filename: Optional[str] = None
     ) -> str:
-        """Build prompt for metadata extraction."""
+        """Build prompt for metadata extraction (without existing tags to avoid bias)."""
         # Truncate text if too long (keep first 4000 chars for context)
         truncated_text = text[:4000] if len(text) > 4000 else text
 
@@ -133,9 +139,6 @@ Document text:
 
         if filename:
             prompt += f"\nOriginal filename: {filename}\n"
-
-        if existing_tags and len(existing_tags) > 0:
-            prompt += f"\nExisting tags in the system: {', '.join(existing_tags)}\n"
 
         prompt += """
 Please extract the following information and respond ONLY with a valid JSON object (no markdown, no explanation):
@@ -154,16 +157,66 @@ Guidelines:
 - For document_date, use null if no date is found
 - For summary: If the document is primarily about one specific person (e.g., birth certificate, death certificate, medical record, diploma), include that person's full name in the summary. For example: "Birth certificate for John Smith, born January 15, 1990"
 - For suggested_tags:
-  * Suggest 3-5 relevant tags based on content
-  * If any of the existing tags listed above are absolutely relevant to this document, use those exact tag names
-  * Suggest new tags if the existing tags are not relevant or if additional categorization would be helpful
-  * Prefer existing tags when they accurately describe the document's content, subject, or category
-  * Consider all the words in a tag, not just a single word when determining its relevance. For example for the tag "commitment form", if the document is a form for membership to an organization, then the tag isn't relevant.
-  * DO NOT return existing tags that are not relevant to the document. They ABSOLUTELY must be relevant to the document!
+  * Suggest 5-7 relevant tags that specifically describe this document's content and purpose
+  * Tags should be concrete and specific (e.g., "tax return", "veterinary receipt", "birth certificate")
+  * Avoid vague or generic tags like "unknown", "document", "correspondence", "application", "information"
+  * Each tag must be directly and specifically relevant — not tangentially related
+  * Do NOT generate tags that overlap or subsume each other (e.g., don't emit both "tax" and "tax notification" — pick the most specific one)
 - Keep responses concise and factual
 - Return ONLY the JSON object, nothing else
 """
         return prompt
+
+    def _reconcile_tags(
+        self, generated_tags: List[str], existing_tags: List[str]
+    ) -> List[str]:
+        """
+        Reconcile generated tags against existing tags using an LLM call.
+
+        For each generated tag, checks if an existing tag is a true synonym.
+        Only merges when the meaning is essentially identical.
+        """
+        if not generated_tags or not existing_tags:
+            return generated_tags
+
+        prompt = f"""I have a list of tags generated for a document and a list of existing tags in the system.
+Your job is to produce a clean final tag list by doing two things:
+
+1. DEDUPLICATE within the generated tags: if two generated tags overlap heavily (one is a subset/extension of the other), keep only the more specific one. For example: ["delinquent tax", "delinquent tax notification"] → keep "delinquent tax notification".
+
+2. MAP to existing tags: for each remaining generated tag, if an existing tag means THE SAME THING (true synonym or trivial plural/singular variant), use the existing tag name instead.
+
+Generated tags: {json.dumps(generated_tags)}
+Existing tags: {json.dumps(existing_tags)}
+
+Rules for mapping to existing tags:
+- ONLY map if they are true synonyms (e.g., "tax returns" → "tax return", "invoices" → "invoice")
+- DO NOT map tags that are merely in the same general category
+- "veterinary receipt" is NOT a synonym for "dog license"
+- "letter" is NOT a synonym for "customer service"
+- "2024 tax return" should map to "tax return" if it exists
+
+Respond ONLY with a JSON array of the final tags (no explanation):
+["tag1", "tag2", "tag3"]"""
+
+        try:
+            response_text = self._call_llm(prompt)
+            cleaned = response_text.strip()
+            if cleaned.startswith("```json"):
+                cleaned = cleaned[7:]
+            if cleaned.startswith("```"):
+                cleaned = cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+
+            reconciled = json.loads(cleaned)
+            if isinstance(reconciled, list):
+                return reconciled[:10]
+        except Exception as e:
+            logger.warning(f"Tag reconciliation failed, using generated tags: {e}")
+
+        return generated_tags
 
     def _call_llm(self, prompt: str) -> str:
         """Call LLM with the given prompt."""
@@ -248,6 +301,44 @@ Guidelines:
             "summary": "",
             "suggested_tags": [],
         }
+
+    def rewrite_query(
+        self,
+        question: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """
+        Rewrite a user question into a standalone search query using conversation context.
+
+        Follow-up questions like "But you don't know anything about Bella?" won't embed
+        well for vector search. This rewrites them into content-focused queries like
+        "Bella the dog information".
+
+        Returns the rewritten query, or the original question if rewriting fails.
+        """
+        if not conversation_history:
+            return question
+
+        history_text = "\n".join(
+            f"{msg['role'].upper()}: {msg['content']}" for msg in conversation_history[-6:]
+        )
+
+        prompt = f"""Given this conversation history and a follow-up question, rewrite the question as a short, standalone document search query (5-10 words max). Focus on the key entities and topics being asked about, not the conversational framing.
+
+Conversation history:
+{history_text}
+
+Follow-up question: {question}
+
+Respond with ONLY the rewritten search query, nothing else."""
+
+        try:
+            rewritten = self._call_llm(prompt).strip().strip('"').strip("'")
+            logger.info(f"Rewrote query '{question}' -> '{rewritten}'")
+            return rewritten if rewritten else question
+        except Exception as e:
+            logger.warning(f"Query rewrite failed, using original: {e}")
+            return question
 
     def generate_answer(
         self,

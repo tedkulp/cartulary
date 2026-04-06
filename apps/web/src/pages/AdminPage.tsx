@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { userService } from '../services'
-import type { User, Role, Permission, UserCreate } from '@cartulary/shared'
+import type { User, Role, Permission, UserCreate, RoleCreate } from '@cartulary/shared'
 import { toast } from 'sonner'
 import {
   Users,
@@ -12,6 +12,8 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  Pencil,
+  Plus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -58,10 +60,15 @@ export default function AdminPage() {
   const [userDialog, setUserDialog] = useState(false)
   const [assignRoleDialog, setAssignRoleDialog] = useState(false)
   const [deleteUserDialog, setDeleteUserDialog] = useState(false)
+  const [roleDialog, setRoleDialog] = useState(false)
+  const [deleteRoleDialog, setDeleteRoleDialog] = useState(false)
 
   // Selected items
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [selectedRoles, setSelectedRoles] = useState<string[]>([])
+  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
+  const [roleForm, setRoleForm] = useState<RoleCreate>({ name: '', description: '' })
+  const [rolePermissions, setRolePermissions] = useState<string[]>([])
 
   // Form states
   const [userForm, setUserForm] = useState<UserCreate>({
@@ -71,6 +78,9 @@ export default function AdminPage() {
     is_active: true,
     is_superuser: false,
   })
+
+  const CORE_ROLES = new Set(['user', 'admin', 'superuser'])
+  const [activeTab, setActiveTab] = useState('users')
 
 
   // Statistics
@@ -190,6 +200,70 @@ export default function AdminPage() {
     }
   }
 
+  // Role management
+  const openCreateRoleDialog = () => {
+    setSelectedRole(null)
+    setRoleForm({ name: '', description: '' })
+    setRolePermissions([])
+    setRoleDialog(true)
+  }
+
+  const openEditRoleDialog = (role: Role) => {
+    setSelectedRole(role)
+    setRoleForm({ name: role.name, description: role.description || '' })
+    setRolePermissions(role.permissions?.map((p) => p.id) || [])
+    setRoleDialog(true)
+  }
+
+  const saveRole = async () => {
+    try {
+      if (selectedRole) {
+        await userService.updateRole(selectedRole.id, {
+          name: roleForm.name,
+          description: roleForm.description || null,
+          permission_ids: rolePermissions,
+        })
+        toast.success('Role updated')
+      } else {
+        await userService.createRole({
+          ...roleForm,
+          permission_ids: rolePermissions,
+        })
+        toast.success('Role created')
+      }
+      setRoleDialog(false)
+      setActiveTab('roles')
+      await loadData()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to save role')
+    }
+  }
+
+  const handleDeleteRoleClick = (role: Role) => {
+    setSelectedRole(role)
+    setDeleteRoleDialog(true)
+  }
+
+  const deleteRole = async () => {
+    if (!selectedRole) return
+    try {
+      await userService.deleteRole(selectedRole.id)
+      toast.success('Role deleted')
+      setDeleteRoleDialog(false)
+      setSelectedRole(null)
+      setActiveTab('roles')
+      await loadData()
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to delete role')
+    }
+  }
+
+  const toggleRolePermission = (permId: string) => {
+    setRolePermissions((prev) =>
+      prev.includes(permId) ? prev.filter((id) => id !== permId) : [...prev, permId]
+    )
+  }
+
   return (
     <div className="container mx-auto py-6 space-y-6">
       <div className="mb-6">
@@ -257,7 +331,7 @@ export default function AdminPage() {
           </div>
 
           {/* Tabs */}
-          <Tabs defaultValue="users" className="space-y-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
             <TabsList>
               <TabsTrigger value="users">Users</TabsTrigger>
               <TabsTrigger value="roles">Roles</TabsTrigger>
@@ -361,16 +435,20 @@ export default function AdminPage() {
             <TabsContent value="roles">
               <Card>
                 <CardHeader>
-                  <CardTitle>Roles</CardTitle>
-                  <CardDescription>
-                    View available roles. Role management with permissions will be available in a future update.
-                  </CardDescription>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>Roles</CardTitle>
+                      <CardDescription>Manage roles and their permissions. Core roles (user, admin, superuser) cannot be deleted.</CardDescription>
+                    </div>
+                    <Button onClick={openCreateRoleDialog}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Create Role
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {roles.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No roles defined yet.
-                    </div>
+                    <div className="text-center py-8 text-muted-foreground">No roles defined yet.</div>
                   ) : (
                     <div className="rounded-md border">
                       <Table>
@@ -378,13 +456,46 @@ export default function AdminPage() {
                           <TableRow>
                             <TableHead>Name</TableHead>
                             <TableHead>Description</TableHead>
+                            <TableHead>Permissions</TableHead>
+                            <TableHead>Actions</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {roles.map((role) => (
                             <TableRow key={role.id}>
-                              <TableCell className="font-medium">{role.name}</TableCell>
+                              <TableCell className="font-medium">
+                                {role.name}
+                                {CORE_ROLES.has(role.name) && (
+                                  <Badge variant="outline" className="ml-2 text-xs">core</Badge>
+                                )}
+                              </TableCell>
                               <TableCell>{role.description || '-'}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {role.permissions && role.permissions.length > 0 ? (
+                                    role.permissions.map((p) => (
+                                      <Badge key={p.id} variant="secondary" className="text-xs">{p.name}</Badge>
+                                    ))
+                                  ) : (
+                                    <span className="text-sm text-muted-foreground">None</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Button variant="ghost" size="icon" onClick={() => openEditRoleDialog(role)}>
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDeleteRoleClick(role)}
+                                    disabled={CORE_ROLES.has(role.name)}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-destructive" />
+                                  </Button>
+                                </div>
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -566,6 +677,83 @@ export default function AdminPage() {
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setSelectedUser(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={deleteUser}>Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Create/Edit Role Dialog */}
+      <Dialog open={roleDialog} onOpenChange={setRoleDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedRole ? 'Edit Role' : 'Create Role'}</DialogTitle>
+            <DialogDescription>
+              {selectedRole ? `Editing role: ${selectedRole.name}` : 'Define a new role and assign permissions to it.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="role_name">Name</Label>
+              <Input
+                id="role_name"
+                value={roleForm.name}
+                onChange={(e) => setRoleForm({ ...roleForm, name: e.target.value })}
+                placeholder="e.g. editor"
+                disabled={selectedRole ? CORE_ROLES.has(selectedRole.name) : false}
+              />
+            </div>
+            <div>
+              <Label htmlFor="role_description">Description</Label>
+              <Input
+                id="role_description"
+                value={roleForm.description || ''}
+                onChange={(e) => setRoleForm({ ...roleForm, description: e.target.value })}
+                placeholder="Optional description"
+              />
+            </div>
+            <div>
+              <Label>Permissions</Label>
+              <div className="mt-2 space-y-1 max-h-60 overflow-y-auto rounded-md border p-3">
+                {permissions.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`perm-${p.id}`}
+                      checked={rolePermissions.includes(p.id)}
+                      onCheckedChange={() => toggleRolePermission(p.id)}
+                    />
+                    <Label htmlFor={`perm-${p.id}`} className="cursor-pointer flex-1">
+                      <span className="font-mono text-sm">{p.name}</span>
+                      {p.description && (
+                        <span className="ml-2 text-xs text-muted-foreground">{p.description}</span>
+                      )}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleDialog(false)}>Cancel</Button>
+            <Button onClick={saveRole} disabled={!roleForm.name}>
+              {selectedRole ? 'Save changes' : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Role Dialog */}
+      <AlertDialog open={deleteRoleDialog} onOpenChange={setDeleteRoleDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Role</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the role <strong>{selectedRole?.name}</strong>? Users assigned this role will lose the associated permissions.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setSelectedRole(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={deleteRole}>Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

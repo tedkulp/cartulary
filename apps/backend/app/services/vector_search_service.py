@@ -34,6 +34,7 @@ class VectorSearchService:
                 model_name=settings.EMBEDDING_MODEL,
                 api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
                 dimension=settings.EMBEDDING_DIMENSION,
+                base_url=settings.LLM_BASE_URL,
             )
 
     def vector_search(
@@ -62,27 +63,32 @@ class VectorSearchService:
 
         # Build the SQL query with direct string formatting for the vector
         # (SQLAlchemy text() doesn't handle vector type well with parameters)
+        # Inner query: DISTINCT ON picks the best chunk per document (ORDER BY d.id, similarity DESC)
+        # Outer query: sorts those best-per-document rows by similarity and applies LIMIT
         sql = text(f"""
-            SELECT DISTINCT ON (d.id)
-                d.id,
-                d.title,
-                d.description,
-                d.original_filename,
-                d.file_size,
-                d.mime_type,
-                d.checksum,
-                d.processing_status,
-                d.ocr_text,
-                d.created_at,
-                d.updated_at,
-                d.uploaded_by,
-                de.chunk_text,
-                1 - (de.embedding <=> '{embedding_str}'::vector) as similarity
-            FROM documents d
-            INNER JOIN document_embeddings de ON d.id = de.document_id
-            WHERE d.owner_id = :user_id
-            AND 1 - (de.embedding <=> '{embedding_str}'::vector) >= :threshold
-            ORDER BY d.id, similarity DESC
+            SELECT * FROM (
+                SELECT DISTINCT ON (d.id)
+                    d.id,
+                    d.title,
+                    d.description,
+                    d.original_filename,
+                    d.file_size,
+                    d.mime_type,
+                    d.checksum,
+                    d.processing_status,
+                    d.ocr_text,
+                    d.created_at,
+                    d.updated_at,
+                    d.uploaded_by,
+                    de.chunk_text,
+                    1 - (de.embedding <=> '{embedding_str}'::vector) as similarity
+                FROM documents d
+                INNER JOIN document_embeddings de ON d.id = de.document_id
+                WHERE d.owner_id = :user_id
+                AND 1 - (de.embedding <=> '{embedding_str}'::vector) >= :threshold
+                ORDER BY d.id, similarity DESC
+            ) best_chunks
+            ORDER BY similarity DESC
             LIMIT :limit
         """)
 

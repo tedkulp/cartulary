@@ -26,6 +26,7 @@ def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
         model_name=settings.EMBEDDING_MODEL,
         api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
         dimension=settings.EMBEDDING_DIMENSION,
+        base_url=settings.LLM_BASE_URL,
     )
 
     # Create vector search service

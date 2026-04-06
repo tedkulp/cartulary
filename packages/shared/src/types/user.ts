@@ -8,6 +8,7 @@ export interface User {
   full_name: string | null
   is_active: boolean
   is_superuser: boolean
+  oidc_sub: string | null
   created_at: string
   roles?: Role[]
 }
@@ -33,16 +34,19 @@ export interface Role {
   name: string
   description: string | null
   created_at: string
+  permissions?: Permission[]
 }
 
 export interface RoleCreate {
   name: string
   description?: string | null
+  permission_ids?: string[]
 }
 
 export interface RoleUpdate {
   name?: string
   description?: string | null
+  permission_ids?: string[]
 }
 
 export interface Permission {

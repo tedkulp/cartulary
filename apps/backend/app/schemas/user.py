@@ -44,11 +44,20 @@ class UserInDB(UserBase):
         from_attributes = True
 
 
+class UserProfileUpdate(BaseModel):
+    """Schema for users updating their own profile."""
+
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+
+
 class UserResponse(UserBase):
     """Schema for user response (without sensitive data)."""
 
     id: UUID
     is_superuser: bool
+    oidc_sub: Optional[str] = None
     created_at: datetime
     roles: List['RoleResponse'] = []
 
@@ -68,7 +77,7 @@ class RoleBase(BaseModel):
 class RoleCreate(RoleBase):
     """Schema for creating a role."""
 
-    pass
+    permission_ids: List[UUID] = []
 
 
 class RoleUpdate(BaseModel):
@@ -76,6 +85,7 @@ class RoleUpdate(BaseModel):
 
     name: Optional[str] = None
     description: Optional[str] = None
+    permission_ids: Optional[List[UUID]] = None
 
 
 class RoleResponse(RoleBase):
@@ -83,6 +93,7 @@ class RoleResponse(RoleBase):
 
     id: UUID
     created_at: datetime
+    permissions: List['PermissionResponse'] = []
 
     class Config:
         from_attributes = True

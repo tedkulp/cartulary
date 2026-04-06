@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu'
-  import { FileText, Tags, Share2, Settings as SettingsIcon, User, LogOut, Info, MessageSquare } from 'lucide-react'
+import { FileText, Tags, Share2, Settings as SettingsIcon, User, LogOut, Info, MessageSquare, FolderInput } from 'lucide-react'
 
 export default function AppHeader() {
   const navigate = useNavigate()
@@ -58,13 +58,22 @@ export default function AppHeader() {
             Shared
           </Button>
           {(user?.is_superuser || user?.roles?.some(r => r.name === 'admin')) && (
-            <Button
-              variant={isActive('/admin') ? 'secondary' : 'ghost'}
-              onClick={() => navigate('/admin')}
-            >
-              <SettingsIcon className="mr-2 h-4 w-4" />
-              Admin
-            </Button>
+            <>
+              <Button
+                variant={isActive('/import-sources') ? 'secondary' : 'ghost'}
+                onClick={() => navigate('/import-sources')}
+              >
+                <FolderInput className="mr-2 h-4 w-4" />
+                Import Sources
+              </Button>
+              <Button
+                variant={isActive('/admin') ? 'secondary' : 'ghost'}
+                onClick={() => navigate('/admin')}
+              >
+                <SettingsIcon className="mr-2 h-4 w-4" />
+                Admin
+              </Button>
+            </>
           )}
         </nav>
 

@@ -1,6 +1,14 @@
 """Main FastAPI application."""
 import logging
+import sys
 from fastapi import FastAPI
+
+# Ensure app logs are visible alongside uvicorn output
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings

@@ -88,6 +88,11 @@ export class UserService {
 
   // ===== Role-Permission Assignments =====
 
+  async setRolePermissions(roleId: string, permissionIds: string[]): Promise<Role> {
+    const { data } = await this.api.put<Role>(`/api/v1/roles/${roleId}/permissions`, { permission_ids: permissionIds })
+    return data
+  }
+
   async addPermissionToRole(roleId: string, permissionId: string): Promise<void> {
     await this.api.post(`/api/v1/roles/${roleId}/permissions/${permissionId}`)
   }

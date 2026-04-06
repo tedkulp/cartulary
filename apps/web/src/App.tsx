@@ -11,6 +11,7 @@ import DocumentsList from './pages/DocumentsList'
 import DocumentDetail from './pages/DocumentDetail'
 import AdminPage from './pages/AdminPage'
 import SettingsPage from './pages/SettingsPage'
+import ImportSourcesPage from './pages/ImportSourcesPage'
 import TagsPage from './pages/TagsPage'
 import SharedDocuments from './pages/SharedDocuments'
 import AboutPage from './pages/AboutPage'
@@ -61,6 +62,7 @@ function App() {
             <Route path="chat" element={<ChatPage />} />
             <Route path="admin" element={<AdminPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="import-sources" element={<ImportSourcesPage />} />
             <Route path="tags" element={<TagsPage />} />
             <Route path="shared" element={<SharedDocuments />} />
             <Route path="about" element={<AboutPage />} />

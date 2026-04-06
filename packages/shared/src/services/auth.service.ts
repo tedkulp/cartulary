@@ -35,6 +35,11 @@ export class AuthService {
     return response.data
   }
 
+  async updateProfile(data: { full_name?: string | null; email?: string; password?: string }): Promise<User> {
+    const response = await this.api.patch<User>('/api/v1/auth/me', data)
+    return response.data
+  }
+
   // OIDC Methods
   async getOIDCConfig(): Promise<OIDCConfig> {
     const response = await this.api.get<OIDCConfig>('/api/v1/auth/oidc/config')
