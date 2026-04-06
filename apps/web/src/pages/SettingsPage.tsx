@@ -16,7 +16,7 @@ export default function SettingsPage() {
 
   const [fullName, setFullName] = useState(user?.full_name ?? '')
   const [email, setEmail] = useState(user?.email ?? '')
-  const [currentPassword, setCurrentPassword] = useState('')
+  const [, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [saving, setSaving] = useState(false)
