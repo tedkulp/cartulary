@@ -534,15 +534,15 @@ def extract_metadata(self, document_id: str):
         owner_id = str(owner_row[0]) if owner_row else None
 
         if owner_id:
-            # Replace existing tags entirely — remove all current associations first
-            db.execute(
-                sql_text("DELETE FROM document_tags WHERE document_id = :doc_id"),
-                {"doc_id": document_id}
-            )
-            db.commit()
-            logger.info(f"Cleared existing tags for document {document_id}")
-
             if suggested_tags:
+                # Replace existing tags entirely — remove all current associations first
+                db.execute(
+                    sql_text("DELETE FROM document_tags WHERE document_id = :doc_id"),
+                    {"doc_id": document_id}
+                )
+                db.commit()
+                logger.info(f"Cleared existing tags for document {document_id}")
+
                 logger.info(f"Processing {len(suggested_tags)} suggested tags")
 
                 for tag_name in suggested_tags:
