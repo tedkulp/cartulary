@@ -5,6 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from langdetect import detect
+from langdetect.lang_detect_exception import LangDetectException
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -315,6 +318,7 @@ TEXT:
         Returns:
             Language code (e.g., 'en', 'de', 'fr')
         """
-        # TODO: Implement language detection using langdetect or similar
-        # For now, just return 'en' as default
-        return "en"
+        try:
+            return detect(text)
+        except LangDetectException:
+            return "en"
