@@ -5,12 +5,16 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from langdetect import detect
+from langdetect import DetectorFactory, detect
 from langdetect.lang_detect_exception import LangDetectException
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# langdetect is non-deterministic by default: the same text can yield different
+# results across calls. Seeding makes detection reproducible.
+DetectorFactory.seed = 0
 
 class OCRService:
     """Service for LLM vision-based text extraction with two-pass processing."""
