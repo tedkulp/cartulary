@@ -286,7 +286,7 @@ ghcr.io/tedkulp/cartulary-backend:0.7
 ghcr.io/tedkulp/cartulary-backend:0
 
 # Commit-specific (for debugging)
-ghcr.io/tedkulp/cartulary-backend:main-136e1e8
+ghcr.io/tedkulp/cartulary-backend:sha-136e1e8
 ```
 
 ### Local Multi-Arch Build
