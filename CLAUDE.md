@@ -342,6 +342,46 @@ export const documentService = {
 - **When**: API services, types, business logic
 - **Example**: `@cartulary/shared` package with services and types
 
+## Vision OCR (Two-Pass)
+
+OCR runs in two passes in `apps/backend/app/services/ocr_service.py`:
+
+1. **Pass 1 (vision model)** — extracts raw text from the page image. The prompt asks for plain text only.
+2. **Pass 2 (formatter model)** — a text-only instruct model turns that raw text into markdown.
+
+**Why two passes**: vision models read text well but follow formatting instructions poorly. Separating extraction from formatting gives better output from each, and either model can be swapped independently.
+
+### Model Recommendations
+
+**Pass 1 — vision (`VISION_OCR_MODEL`)**
+
+| Model | Size | Speed | Notes |
+|-------|------|-------|-------|
+| `minicpm-v` / `openbmb/minicpm-v4.5` | ~3GB | Fast | Recommended |
+| `llava` | ~4GB | Medium | Good general purpose |
+| `llava:13b` | ~8GB | Slow | More accurate, more resources |
+| `gemma3:4b-it-q4_K_M` | ~3GB | Fast | Good for structured documents |
+
+**Pass 2 — formatter (`OCR_FORMATTER_MODEL`)**
+
+| Model | Notes |
+|-------|-------|
+| `qwen2.5:7b-instruct-q4_K_M` | Recommended; follows instructions well |
+| `llama3` | Good general purpose |
+| `mistral` | Faster alternative |
+| `qwen2.5:14b-instruct` | More capable, slower |
+
+Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2.
+
+### Behavior Notes
+
+- Pages with embedded text are used as-is; vision OCR runs only when a page yields under 50 characters, or when `force_ocr` is set.
+- Pages render at `fitz.Matrix(2, 2)` (~144 DPI). Raise it for higher fidelity at the cost of speed.
+- Pass 2 is skipped when pass 1 returns under 10 characters.
+- Pages are processed sequentially, and each page's raw and formatted output is logged.
+- A reasoning or chatty formatter model can leak `<think>` tags or preambles into `ocr_text`; there is currently no post-processing cleanup (see issue #3).
+- `detect_language()` uses `langdetect` with a fixed seed for reproducibility, and falls back to `"en"` on unusable text.
+
 ## Testing Strategy
 
 ### Backend Tests
@@ -405,9 +445,10 @@ LOCAL_STORAGE_PATH=/data/documents
 # Ollama (Required for OCR and embeddings)
 LLM_BASE_URL=http://localhost:11434
 
-# Vision OCR (Required - uses Ollama)
+# Vision OCR (Required - uses Ollama, two-pass)
 OCR_ENABLED=true
-VISION_OCR_MODEL=minicpm-v  # or llava, gemma3:4b-it-q4_K_M
+VISION_OCR_MODEL=minicpm-v  # Pass 1: vision model, or llava, gemma3:4b-it-q4_K_M
+OCR_FORMATTER_MODEL=qwen2.5:7b-instruct-q4_K_M  # Pass 2: markdown formatter
 
 # Embeddings (Uses Ollama by default)
 EMBEDDING_ENABLED=true
@@ -691,7 +732,7 @@ When starting a new session, provide:
 4. Next planned feature/task
 
 ### Key Project Decisions
-- **OCR Strategy**: LLM vision-based OCR using Ollama (required dependency)
+- **OCR Strategy**: Two-pass LLM OCR using Ollama (required dependency) - vision model extracts, text model formats
 - **Deduplication**: Block duplicate uploads via SHA-256 checksum
 - **Search**: Hybrid approach combining FTS and semantic search with RRF
 - **Storage**: Support both local filesystem and S3-compatible storage
