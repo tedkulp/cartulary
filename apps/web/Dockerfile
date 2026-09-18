@@ -1,10 +1,16 @@
+# Pinned pnpm version. Keep in sync with packageManager in package.json and the
+# pnpm/action-setup version in .github/workflows/docker-build.yml. pnpm 11+ requires
+# Node 22 and crashes on the node:20 base images below.
+ARG PNPM_VERSION=10.27.0
+
 # Development stage
 FROM node:20-alpine AS development
 
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm@latest
+ARG PNPM_VERSION
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 # Copy root workspace files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
@@ -35,7 +41,8 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm@latest
+ARG PNPM_VERSION
+RUN npm install -g pnpm@${PNPM_VERSION}
 
 # Copy root package files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
