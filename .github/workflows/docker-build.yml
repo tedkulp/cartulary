@@ -57,7 +57,7 @@ jobs:
         run: |
           cd apps/backend
           if [ -d "tests" ]; then
-            pytest -v --maxfail=3 || echo "No tests found or tests failed - continuing"
+            pytest -v --maxfail=3 --cov=app --cov-report=term
           else
             echo "No test directory found - skipping tests"
           fi
