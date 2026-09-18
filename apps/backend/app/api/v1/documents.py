@@ -1,4 +1,5 @@
 """Document API endpoints."""
+import logging
 from datetime import datetime
 from typing import List
 from uuid import UUID
@@ -22,6 +23,8 @@ from app.models.document import Document
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentOCRTextUpdate
 from app.services.document_service import DocumentService
 from app.services.notification_service import notification_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -424,8 +427,6 @@ async def delete_document(
             file_path.unlink()
     except Exception as e:
         # Log but don't fail the deletion
-        import logging
-        logger = logging.getLogger(__name__)
         logger.error(f"Failed to delete file {document.file_path}: {e}")
 
     # Delete database record (cascades to embeddings and shares)

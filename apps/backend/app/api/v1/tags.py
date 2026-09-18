@@ -1,4 +1,5 @@
 """Tag API endpoints."""
+import logging
 from typing import List
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from app.models.tag import Tag
 from app.models.user import User
 from app.schemas.tag import DocumentTagRequest, TagCreate, TagResponse, TagUpdate
 from app.services.notification_service import notification_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tags", tags=["tags"])
 
@@ -192,8 +195,6 @@ async def add_tags_to_document(
     db.commit()
 
     # Notify about document update
-    import logging
-    logger = logging.getLogger(__name__)
     print(f"===== TAGS: About to notify document update for document_id={document_id}, user_id={current_user.id} =====")
     logger.info(f"About to notify document update for document_id={document_id}, user_id={current_user.id}")
 
@@ -246,8 +247,6 @@ async def remove_tag_from_document(
         db.commit()
 
         # Notify about document update
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"About to notify document update (tag removed) for document_id={document_id}, user_id={current_user.id}")
 
         try:
