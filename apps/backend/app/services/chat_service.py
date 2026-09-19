@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.chat import ChatMessage, ChatResponse, DocumentSource
 from app.services.vector_search_service import VectorSearchService
-from app.services.llm_service import LLMService
+from app.services.assistant_service import AssistantService
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class ChatService:
         self,
         db: Session,
         vector_search_service: VectorSearchService,
-        llm_service: LLMService,
+        assistant_service: AssistantService,
     ):
         """
         Initialize chat service.
@@ -27,11 +27,11 @@ class ChatService:
         Args:
             db: Database session
             vector_search_service: Service for vector similarity search
-            llm_service: Service for LLM-based answer generation
+            assistant_service: Service for query rewriting and answer generation
         """
         self.db = db
         self.vector_search_service = vector_search_service
-        self.llm_service = llm_service
+        self.assistant_service = assistant_service
 
     def chat(
         self,
@@ -64,7 +64,7 @@ class ChatService:
                 for msg in conversation_history
             ]
 
-        search_query = self.llm_service.rewrite_query(question, history_dicts)
+        search_query = self.assistant_service.rewrite_query(question, history_dicts)
 
         # Step 2: Retrieve relevant document chunks using vector search
         try:
@@ -116,9 +116,9 @@ class ChatService:
 
         logger.info(f"Using {len(chunks)} chunks from {len(sources)} documents")
 
-        # Step 4: Generate answer using LLM
+        # Step 4: Generate answer using the assistant model
         try:
-            answer = self.llm_service.generate_answer(
+            answer = self.assistant_service.generate_answer(
                 question=question,
                 context_chunks=chunks,
                 conversation_history=history_dicts,

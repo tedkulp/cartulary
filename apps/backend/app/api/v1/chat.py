@@ -1,17 +1,16 @@
 """Chat API endpoints for RAG-based document Q&A."""
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
-from app.providers.factory import get_embedder
+from app.providers.factory import get_assistant_model, get_embedder
 from app.schemas.chat import ChatRequest, ChatResponse
+from app.services.assistant_service import AssistantService
 from app.services.chat_service import ChatService
 from app.services.vector_search_service import VectorSearchService
-from app.services.llm_service import LLMService
 from app.api.v1.auth import get_current_user
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +19,17 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
     """Get chat service with dependencies."""
-    # Create vector search service
-    vector_search_service = VectorSearchService(db=db, embedder=get_embedder())
+    assistant_model = get_assistant_model()
+    if assistant_model is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Chat is disabled in configuration (LLM_ENABLED is false).",
+        )
 
-    # Create LLM service
-    llm_service = LLMService(
-        provider=settings.LLM_PROVIDER,
-        model_name=settings.LLM_MODEL,
-        api_key=settings.OPENAI_API_KEY if settings.LLM_PROVIDER == "openai" else None,
-        base_url=settings.LLM_BASE_URL,
-    )
-
-    # Create and return chat service
     return ChatService(
         db=db,
-        vector_search_service=vector_search_service,
-        llm_service=llm_service,
+        vector_search_service=VectorSearchService(db=db, embedder=get_embedder()),
+        assistant_service=AssistantService(assistant_model),
     )
 
 

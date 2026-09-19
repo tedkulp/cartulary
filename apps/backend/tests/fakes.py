@@ -1,6 +1,10 @@
-"""Test doubles for the model ports. They satisfy the ports structurally."""
+"""Test doubles for the model ports, and a fake HTTP endpoint for adapter tests."""
 import hashlib
-from typing import List, Optional, Sequence, Union
+import json
+import threading
+from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from app.providers import Message, ModelError
 
@@ -15,6 +19,7 @@ class ScriptedChatModel:
     def __init__(self, *replies: Union[str, Exception]) -> None:
         self._replies = list(replies)
         self.calls: List[List[Message]] = []
+        self.options: List[Dict[str, Optional[float]]] = []
 
     def chat(
         self,
@@ -24,6 +29,7 @@ class ScriptedChatModel:
         max_tokens: Optional[int] = None,
     ) -> str:
         self.calls.append(list(messages))
+        self.options.append({"temperature": temperature, "max_tokens": max_tokens})
         if not self._replies:
             raise AssertionError("ScriptedChatModel received more calls than scripted replies")
         reply = self._replies.pop(0)
@@ -60,3 +66,50 @@ class FakeEmbedder:
             values.extend(byte / 255.0 for byte in digest)
             counter += 1
         return values[: self._dimension]
+
+
+class FakeJsonEndpoint:
+    """A local HTTP server that answers every POST with one JSON payload and records requests.
+
+    Use it as a context manager. `base_url` is the server's root URL.
+    """
+
+    def __init__(self, payload: Dict[str, Any], status: int = 200) -> None:
+        self.requests: List[RecordedRequest] = []
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                headers = {name.lower(): value for name, value in self.headers.items()}
+                fake.requests.append(RecordedRequest(self.path, headers, body))
+                encoded = json.dumps(payload).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base_url = f"http://127.0.0.1:{self._server.server_address[1]}"
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def __enter__(self) -> "FakeJsonEndpoint":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+
+
+@dataclass
+class RecordedRequest:
+    """One request received by a FakeJsonEndpoint."""
+
+    path: str
+    headers: Dict[str, str]  # Names lower-cased
+    body: Dict[str, Any]

@@ -7,9 +7,10 @@ from functools import lru_cache
 from typing import Optional
 
 from app.config import settings
+from app.providers.gemini import GeminiChatModel
 from app.providers.local import LocalEmbedder
 from app.providers.ollama import OllamaChatModel, OllamaEmbedder
-from app.providers.openai import OpenAIEmbedder
+from app.providers.openai import OpenAIChatModel, OpenAIEmbedder
 from app.providers.ports import ChatModel, Embedder
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,33 @@ def get_formatter_model() -> Optional[ChatModel]:
         return None
     model = _ollama_chat_model(settings.OCR_FORMATTER_MODEL)
     logger.info(f"Formatter model: {model!r}")
+    return model
+
+
+@lru_cache(maxsize=None)
+def get_assistant_model() -> Optional[ChatModel]:
+    """The chat model for metadata extraction and RAG answers, from the LLM_* settings."""
+    if not settings.LLM_ENABLED:
+        return None
+    provider = settings.LLM_PROVIDER
+    model: ChatModel
+    if provider == "ollama":
+        model = _ollama_chat_model(settings.LLM_MODEL)
+    elif provider == "openai":
+        model = OpenAIChatModel(
+            api_key=settings.OPENAI_API_KEY,
+            model=settings.LLM_MODEL,
+            timeout=settings.MODEL_TIMEOUT_SECONDS,
+        )
+    elif provider == "gemini":
+        model = GeminiChatModel(
+            api_key=settings.GEMINI_API_KEY,
+            model=settings.LLM_MODEL,
+            timeout=settings.MODEL_TIMEOUT_SECONDS,
+        )
+    else:
+        raise ValueError(f"Unknown LLM_PROVIDER {provider!r}: expected ollama, openai or gemini")
+    logger.info(f"Assistant model: {model!r}")
     return model
 
 

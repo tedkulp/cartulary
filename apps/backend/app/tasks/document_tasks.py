@@ -399,12 +399,13 @@ def extract_metadata(self, document_id: str):
     Returns:
         Dictionary with extraction results
     """
-    from app.services.llm_service import LLMService
+    from app.providers.factory import get_assistant_model
+    from app.services.assistant_service import AssistantService
 
     logger.info(f"Starting metadata extraction for document {document_id}")
 
-    # Check if LLM is enabled
-    if not settings.LLM_ENABLED:
+    assistant_model = get_assistant_model()
+    if assistant_model is None:
         logger.info("LLM is disabled, skipping metadata extraction")
         return {"status": "skipped", "reason": "LLM disabled"}
 
@@ -439,18 +440,10 @@ def extract_metadata(self, document_id: str):
         existing_tags = [row[0] for row in tags_result.fetchall()]
         logger.info(f"Found {len(existing_tags)} existing tags to provide to LLM")
 
-        # Initialize LLM service
-        api_key = settings.OPENAI_API_KEY if settings.LLM_PROVIDER == "openai" else settings.GEMINI_API_KEY
-        llm_service = LLMService(
-            provider=settings.LLM_PROVIDER,
-            model_name=settings.LLM_MODEL,
-            api_key=api_key,
-            base_url=settings.LLM_BASE_URL,
-        )
-
         # Extract metadata
-        logger.info(f"Calling LLM for metadata extraction...")
-        metadata = llm_service.extract_metadata(ocr_text, original_filename, existing_tags)
+        logger.info(f"Calling assistant model for metadata extraction...")
+        assistant_service = AssistantService(assistant_model)
+        metadata = assistant_service.extract_metadata(ocr_text, original_filename, existing_tags)
         logger.info(f"Extracted metadata: {metadata}")
 
         # Get current description

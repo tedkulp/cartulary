@@ -92,7 +92,7 @@ apps/backend/
 │   ├── services/            # Business logic
 │   │   ├── ocr_service.py   # Ollama vision OCR
 │   │   ├── vector_search_service.py  # Semantic search
-│   │   ├── llm_service.py   # LLM metadata extraction
+│   │   ├── assistant_service.py  # Metadata extraction and RAG answers
 │   │   ├── search_service.py     # Hybrid search
 │   │   └── ...
 │   ├── tasks/               # Celery tasks

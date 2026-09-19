@@ -749,6 +749,7 @@ When starting a new session, provide:
 ### Areas Requiring Special Attention
 - **Ollama dependency**: OCR and embeddings require Ollama running and accessible
 - **Vector embeddings**: `EMBEDDING_DIMENSION` must match the model (768 for nomic-embed-text, 384 for local, 1536 for OpenAI); nothing guesses it from the model name. The embedder comes from `get_embedder()` in `app/providers/factory.py`, which returns `None` when `EMBEDDING_ENABLED` is false
+- **Assistant model**: Metadata extraction and RAG chat go through `AssistantService` (`app/services/assistant_service.py`), built on the chat model from `get_assistant_model()`. That builder picks the adapter from `LLM_PROVIDER` and the key that matches it (`OPENAI_API_KEY` or `GEMINI_API_KEY`), and returns `None` when `LLM_ENABLED` is false. Then the metadata task skips and the chat API returns 400
 - **Vision models**: Ensure Ollama has the vision model pulled (minicpm-v, llava, gemma3)
 - **Async operations**: Use async/await consistently in backend
 - **Error handling**: Provide user-friendly messages, log detailed errors
