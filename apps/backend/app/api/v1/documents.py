@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateError, NotFoundError
@@ -202,14 +202,24 @@ async def download_document(
     )
 
 
+# Both reprocess endpoints offer the same page cache bypass
+REFRESH_CACHE = Query(
+    False, description="Read every page with the models again, ignoring the page cache"
+)
+
+
 @router.post(
     "/{document_id}/reprocess",
     response_model=dict,
     summary="Reprocess document",
-    description="Retry OCR processing for a failed or pending document"
+    description=(
+        "Retry OCR processing for a failed or pending document. A page the current "
+        "models have already read comes from the page cache unless refresh_cache is set."
+    )
 )
 def reprocess_document(
     document_id: UUID,
+    refresh_cache: bool = REFRESH_CACHE,
     document: Document = Depends(require_document_access(PermissionLevel.WRITE))
 ):
     """Reprocess a document - retry OCR (requires write access)."""
@@ -228,7 +238,7 @@ def reprocess_document(
     # Trigger reprocessing
     from app.tasks.document_tasks import reprocess_document as reprocess_task
 
-    task = reprocess_task.delay(str(document_id))
+    task = reprocess_task.delay(str(document_id), refresh_cache=refresh_cache)
 
     return {
         "message": "Document reprocessing triggered",
@@ -273,6 +283,7 @@ async def update_ocr_text(
 )
 def force_reprocess_document(
     document_id: UUID,
+    refresh_cache: bool = REFRESH_CACHE,
     document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
     db: Session = Depends(get_db)
 ):
@@ -284,7 +295,7 @@ def force_reprocess_document(
     # Trigger reprocessing
     from app.tasks.document_tasks import reprocess_document as reprocess_task
 
-    task = reprocess_task.delay(str(document_id))
+    task = reprocess_task.delay(str(document_id), refresh_cache=refresh_cache)
 
     return {
         "message": "Document reprocessing triggered (manual edits will be overwritten)",

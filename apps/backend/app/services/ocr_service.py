@@ -1,4 +1,5 @@
 """OCR service for extracting text from documents using a vision model."""
+import hashlib
 import logging
 import re
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
@@ -10,6 +11,7 @@ from langdetect import DetectorFactory, detect
 from langdetect.lang_detect_exception import LangDetectException
 
 from app.providers import ChatModel, Message, ModelError
+from app.services.page_cache import PageCache
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,49 @@ PREAMBLE = re.compile(
 )
 
 
+# Prefix on every page cache key, so OCR's entries are recognisable in a shared Redis
+CACHE_KEY_PREFIX = "cartulary:ocr:page:"
+# Bumped when a change to the OCR *rules* — cleanup, thresholds, what a pass returns —
+# makes older entries wrong. Changes to the models or prompts invalidate on their own,
+# because the key already covers both.
+CACHE_SCHEMA_VERSION = "1"
+
+
+def _model_identity(model: Optional[ChatModel]) -> str:
+    """How a model is named in a cache key: its adapter and its model name.
+
+    The adapter is part of it because the same model name at two providers is two
+    different models, and they need not agree on what a page says.
+    """
+    if model is None:
+        return "none"
+    return f"{type(model).__name__}:{model.model_name}"
+
+
+def _cache_key(
+    image: bytes, vision_model: ChatModel, formatter_model: Optional[ChatModel]
+) -> str:
+    """The page cache key for one page image read by these two models.
+
+    Everything that decides the text hashes into the key: the page image, both models,
+    the prompts sent to them, and the rules version. Change any of them and the entry is
+    a different one, so nothing stale is ever served.
+    """
+    digest = hashlib.sha256()
+    for part in (
+        CACHE_SCHEMA_VERSION,
+        _model_identity(vision_model),
+        _model_identity(formatter_model),
+        VISION_PROMPT,
+        FORMATTER_SYSTEM_PROMPT,
+        FORMATTER_PROMPT,
+    ):
+        digest.update(part.encode())
+        digest.update(b"\0")
+    digest.update(image)
+    return CACHE_KEY_PREFIX + digest.hexdigest()
+
+
 def _clean_formatter_output(text: str, raw_text: str) -> str:
     """Remove artifacts a reasoning or chatty formatter model leaves around its markdown.
 
@@ -107,6 +152,10 @@ class OCRService:
     for one page run on the same thread, so it is also a ceiling on the model requests OCR
     has outstanding. Rendering stays on the calling thread, because PyMuPDF is not
     thread-safe; pages are joined in document order however they finish.
+
+    With a `page_cache`, a page image these models have already read is served from the
+    cache instead of going to them again. Callers that want fresh output ask for it per
+    call with `refresh_cache`.
     """
 
     def __init__(
@@ -114,6 +163,7 @@ class OCRService:
         vision_model: Optional[ChatModel] = None,
         formatter_model: Optional[ChatModel] = None,
         page_concurrency: int = 1,
+        page_cache: Optional[PageCache] = None,
     ) -> None:
         """Initialize OCR service with the models for each pass."""
         if page_concurrency < 1:
@@ -121,14 +171,19 @@ class OCRService:
         self.vision_model = vision_model
         self.formatter_model = formatter_model
         self.page_concurrency = page_concurrency
+        self.page_cache = page_cache
 
-    def extract_text(self, file_path: str, force_ocr: bool = False) -> Optional[str]:
+    def extract_text(
+        self, file_path: str, force_ocr: bool = False, refresh_cache: bool = False
+    ) -> Optional[str]:
         """
         Extract text from an image or PDF file.
 
         Args:
             file_path: Path to the file to process
             force_ocr: If True, force OCR even if embedded text exists (for reprocessing)
+            refresh_cache: If True, read every page with the models again and replace
+                whatever the page cache holds for it
 
         Returns:
             Extracted text or None if extraction failed
@@ -146,7 +201,9 @@ class OCRService:
 
         # Handle PDF files - try to extract embedded text first unless forced
         if file_path_obj.suffix.lower() == ".pdf":
-            return self._extract_text_from_pdf(file_path, force_ocr=force_ocr)
+            return self._extract_text_from_pdf(
+                file_path, force_ocr=force_ocr, refresh_cache=refresh_cache
+            )
 
         # For images, use vision OCR
         if self.vision_model is None:
@@ -160,17 +217,48 @@ class OCRService:
             return None
 
         try:
-            return self._read_image(self.vision_model, image)
+            return self._read_image(self.vision_model, image, refresh_cache=refresh_cache)
         except ModelError as e:
             logger.error(f"Vision OCR failed for {file_path}: {e}")
             return None
 
-    def _read_image(self, vision_model: ChatModel, image: bytes) -> str:
+    def _read_image(
+        self, vision_model: ChatModel, image: bytes, refresh_cache: bool = False
+    ) -> str:
         """
-        Read text from one image using two-pass processing.
+        Read text from one image, from the page cache or with two-pass processing.
 
         Pass 1: Vision model extracts raw text from image
         Pass 2: Formatter model formats raw text into proper markdown
+
+        A hit in the page cache replaces both passes. Text is only remembered when there
+        is some: an empty read says nothing worth keeping about the page.
+
+        Raises:
+            ModelError: If either model fails
+        """
+        cache = self.page_cache
+        if cache is None:
+            return self._read_image_with_models(vision_model, image)
+
+        key = _cache_key(image, vision_model, self.formatter_model)
+        if refresh_cache:
+            logger.info("Page cache bypassed, re-reading the page")
+        else:
+            cached = cache.get(key)
+            if cached is not None:
+                logger.info(f"Page cache hit: {len(cached)} chars, skipping both passes")
+                return cached
+
+        text = self._read_image_with_models(vision_model, image)
+
+        if text:
+            cache.set(key, text)
+
+        return text
+
+    def _read_image_with_models(self, vision_model: ChatModel, image: bytes) -> str:
+        """Both OCR passes over one image, with no page cache in the way.
 
         Raises:
             ModelError: If either model fails
@@ -218,13 +306,17 @@ class OCRService:
 
         return final_text
 
-    def _extract_text_from_pdf(self, pdf_path: str, force_ocr: bool = False) -> Optional[str]:
+    def _extract_text_from_pdf(
+        self, pdf_path: str, force_ocr: bool = False, refresh_cache: bool = False
+    ) -> Optional[str]:
         """
         Extract text from a PDF, page by page.
 
         Args:
             pdf_path: Path to PDF file
             force_ocr: If True, skip embedded text and force vision OCR
+            refresh_cache: If True, re-read every page with the models, replacing its
+                page cache entry
 
         Returns:
             Extracted text from all pages
@@ -292,7 +384,14 @@ class OCRService:
                     )
                     continue
                 in_flight[
-                    pool.submit(self._ocr_page, vision_model, image, page_number, embedded_text)
+                    pool.submit(
+                        self._ocr_page,
+                        vision_model,
+                        image,
+                        page_number,
+                        embedded_text,
+                        refresh_cache,
+                    )
                 ] = index
 
             while in_flight:
@@ -363,14 +462,15 @@ class OCRService:
         image: bytes,
         page_number: int,
         embedded_text: Optional[str],
+        refresh_cache: bool = False,
     ) -> Optional[str]:
         """Read one rendered page, falling back to its embedded text if the models fail.
 
         Runs on a worker thread, one page per worker, so it touches nothing but its
-        arguments and the models.
+        arguments, the models and the page cache, which several workers may share.
         """
         try:
-            vision_text = self._read_image(vision_model, image)
+            vision_text = self._read_image(vision_model, image, refresh_cache=refresh_cache)
         except ModelError as e:
             logger.error(f"Page {page_number}: Vision OCR failed: {e}")
             return embedded_text

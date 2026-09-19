@@ -353,7 +353,9 @@ OCR runs in two passes in `apps/backend/app/services/ocr_service.py`:
 
 **Models are passed in**: `OCRService(vision_model=..., formatter_model=...)` takes two **chat models** (the port in `app/providers/ports.py`) and never reads settings or builds clients. The factory in `app/providers/factory.py` builds both from settings (Ollama at `LLM_BASE_URL` for now), caches them per process, and returns `None` when `OCR_ENABLED` is false. With no vision model, PDFs use embedded text only and images yield nothing; with no formatter model, pass 2 is skipped. A model request that gets no response for `MODEL_TIMEOUT_SECONDS` (default 300) fails; the Ollama adapter streams, so this bounds each silence rather than the whole reply. Any provider failure, including a timeout, surfaces as `ModelError`, which OCR catches per page (the page keeps its embedded text, if any). See ADR 0001.
 
-In tests, `tests/fakes.py` provides `ScriptedChatModel` and `FakeEmbedder`, so OCR rules run with no model server. Live contract tests for adapters are marked `live` and run only with `pytest --live`.
+**Page cache**: with `OCR_PAGE_CACHE_ENABLED` (default true), each page's finished OCR text is remembered in Redis under a key covering the page image, both models and both prompts, so an identical page — a document reprocessed, a letterhead shared across documents — costs a lookup instead of both passes. Entries expire after `OCR_PAGE_CACHE_TTL_SECONDS` (default 30 days) and a model or prompt change invalidates them by changing the key. Redis being down only costs the speed-up: every failure is logged and read as a miss. `get_page_cache()` in `app/services/page_cache.py` builds it from settings and returns `None` when caching is off. Reprocessing reuses the cache; `POST /documents/{id}/reprocess?refresh_cache=true` (and the `/reprocess/force` variant) re-reads every page with the models and replaces what is cached. See ADR 0002.
+
+In tests, `tests/fakes.py` provides `ScriptedChatModel`, `FakeEmbedder` and `FakePageCache`, so OCR rules run with no model server. Live contract tests for adapters are marked `live` and run only with `pytest --live`.
 
 ### Model Recommendations
 
@@ -380,6 +382,7 @@ Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2. Raising `OCR_P
 ### Behavior Notes
 
 - Pages with embedded text are used as-is; vision OCR runs only when a page yields under 50 characters, or when `force_ocr` is set.
+- A page whose OCR text is already cached skips both passes. Text is only cached when there is some: an empty read is never remembered.
 - Pages render at `fitz.Matrix(2, 2)` (~144 DPI). Raise it for higher fidelity at the cost of speed.
 - Pass 2 is skipped when pass 1 returns under 10 characters.
 - `OCR_PAGE_CONCURRENCY` (default 1) sets how many pages are OCR'd at once. Pages are rendered on the calling thread, since PyMuPDF is not thread-safe, and only the model calls fan out to a thread pool; the combined text always follows page order. Both passes for a page run together, so the setting is also a ceiling on the model requests outstanding at a time. Each page's raw and formatted output is logged.
@@ -454,6 +457,8 @@ OCR_ENABLED=true
 VISION_OCR_MODEL=minicpm-v  # Pass 1: vision model, or llava, gemma3:4b-it-q4_K_M
 OCR_FORMATTER_MODEL=qwen2.5:7b-instruct-q4_K_M  # Pass 2: markdown formatter
 OCR_PAGE_CONCURRENCY=1  # PDF pages OCR'd at once; raise only as far as the model server serves in parallel
+OCR_PAGE_CACHE_ENABLED=true  # Remember each page's OCR text in Redis, keyed by page image and models
+OCR_PAGE_CACHE_TTL_SECONDS=2592000  # How long a remembered page stays cached (30 days)
 MODEL_TIMEOUT_SECONDS=300  # A model request silent for this long fails as a model error
 
 # Embeddings (Uses Ollama by default)

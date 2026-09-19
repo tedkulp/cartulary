@@ -34,3 +34,8 @@ The chat model that turns the vision model's raw text into markdown in the secon
 The most of a PDF's pages that are in the models at once. Both passes for one page run
 together, so it is also a ceiling on the model requests OCR has outstanding.
 _Avoid_: batch size, OCR parallelism
+
+**Page cache**:
+Where a page image's finished OCR text is remembered, so an identical page is never read
+twice by the same models. A speed-up, never a source of truth.
+_Avoid_: OCR cache, result store

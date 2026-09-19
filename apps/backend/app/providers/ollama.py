@@ -25,6 +25,10 @@ class OllamaChatModel:
         self.timeout = timeout
         self._client: Any = None
 
+    @property
+    def model_name(self) -> str:
+        return self.model
+
     def __repr__(self) -> str:
         return f"OllamaChatModel(model={self.model!r}, host={self.host!r})"
 

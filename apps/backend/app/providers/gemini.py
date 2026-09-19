@@ -26,6 +26,10 @@ class GeminiChatModel:
         self.base_url = base_url
         self._genai: Any = None
 
+    @property
+    def model_name(self) -> str:
+        return self.model
+
     def __repr__(self) -> str:
         return f"GeminiChatModel(model={self.model!r})"
 

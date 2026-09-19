@@ -37,6 +37,10 @@ class OpenAIChatModel:
         self.base_url = base_url
         self._client: Any = None
 
+    @property
+    def model_name(self) -> str:
+        return self.model
+
     def __repr__(self) -> str:
         return f"OpenAIChatModel(model={self.model!r})"
 

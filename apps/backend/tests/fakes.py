@@ -16,8 +16,9 @@ class ScriptedChatModel:
     unless it already is one). Running out of replies fails the test loudly.
     """
 
-    def __init__(self, *replies: Union[str, Exception]) -> None:
+    def __init__(self, *replies: Union[str, Exception], model_name: str = "scripted") -> None:
         self._replies = list(replies)
+        self.model_name = model_name
         self.calls: List[List[Message]] = []
         self.options: List[Dict[str, Optional[float]]] = []
 
@@ -123,8 +124,11 @@ class ConcurrentChatModel:
     callable runs outside the lock, so it may block to hold a call open.
     """
 
-    def __init__(self, reply: Callable[[Sequence[Message]], str]) -> None:
+    def __init__(
+        self, reply: Callable[[Sequence[Message]], str], model_name: str = "concurrent"
+    ) -> None:
         self._reply = reply
+        self.model_name = model_name
         self._lock = threading.Lock()
         self.calls: List[List[Message]] = []
         self.running = 0
@@ -146,3 +150,20 @@ class ConcurrentChatModel:
         finally:
             with self._lock:
                 self.running -= 1
+
+
+class FakePageCache:
+    """In-memory page cache that records every key it is asked for and given."""
+
+    def __init__(self, entries: Optional[Dict[str, str]] = None) -> None:
+        self.entries: Dict[str, str] = dict(entries or {})
+        self.gets: List[str] = []
+        self.sets: List[str] = []
+
+    def get(self, key: str) -> Optional[str]:
+        self.gets.append(key)
+        return self.entries.get(key)
+
+    def set(self, key: str, text: str) -> None:
+        self.sets.append(key)
+        self.entries[key] = text

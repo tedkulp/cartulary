@@ -13,19 +13,24 @@ from app.models.document import Document, DocumentEmbedding
 from app.providers.factory import get_embedder, get_formatter_model, get_vision_model
 from app.services.ocr_service import OCRService
 from app.services.notification_service import notification_service
+from app.services.page_cache import get_page_cache
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name="app.tasks.process_document", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
-def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
+def process_document(
+    self, document_id: str, force_ocr: bool = False, refresh_cache: bool = False
+) -> dict:
     """
     Process a document: extract text via OCR and update database.
 
     Args:
         document_id: UUID of the document to process
         force_ocr: If True, force OCR even if embedded text exists (for reprocessing)
+        refresh_cache: If True, read every page with the models again instead of reusing
+            what the page cache holds for it
 
     Returns:
         Processing result dict with status and metadata
@@ -67,10 +72,13 @@ def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
             vision_model=get_vision_model(),
             formatter_model=get_formatter_model(),
             page_concurrency=settings.OCR_PAGE_CONCURRENCY,
+            page_cache=get_page_cache(),
         )
 
         # Extract text
-        extracted_text = ocr_service.extract_text(absolute_path, force_ocr=force_ocr)
+        extracted_text = ocr_service.extract_text(
+            absolute_path, force_ocr=force_ocr, refresh_cache=refresh_cache
+        )
 
         if extracted_text and len(extracted_text.strip()) > 0:
             doc.ocr_text = extracted_text
@@ -155,19 +163,21 @@ def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
 
 
 @celery_app.task(name="app.tasks.reprocess_document")
-def reprocess_document(document_id: str) -> dict:
+def reprocess_document(document_id: str, refresh_cache: bool = False) -> dict:
     """
     Reprocess a document (useful for retrying failed processing).
     Forces OCR even if embedded text exists.
 
     Args:
         document_id: UUID of the document to reprocess
+        refresh_cache: If True, read the pages with the models again rather than reusing
+            what the page cache holds, for when the models are suspected of a bad read
 
     Returns:
         Processing result dict
     """
     logger.info(f"Reprocessing document {document_id} (forcing OCR)")
-    return process_document(document_id, force_ocr=True)
+    return process_document(document_id, force_ocr=True, refresh_cache=refresh_cache)
 
 
 @celery_app.task(bind=True, name="app.tasks.generate_embeddings", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})

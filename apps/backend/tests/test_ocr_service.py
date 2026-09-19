@@ -9,7 +9,7 @@ import pytest
 
 from app.providers import ModelError
 from app.services.ocr_service import OCRService
-from tests.fakes import ConcurrentChatModel, ScriptedChatModel
+from tests.fakes import ConcurrentChatModel, FakePageCache, ScriptedChatModel
 
 LONG_TEXT = "This page carries plenty of embedded text, well over fifty characters."
 SHORT_TEXT = "Page 2"
@@ -424,3 +424,126 @@ class TestPageConcurrency:
         """A page concurrency under 1 is a configuration error, not a silent no-op."""
         with pytest.raises(ValueError, match="page_concurrency"):
             OCRService(page_concurrency=concurrency)
+
+
+class TestPageCache:
+    """OCR output is remembered by page image, so identical pages are read once."""
+
+    def test_identical_page_image_is_read_once(self, tmp_path):
+        """The second document with the same page skips both model passes."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+
+        first = OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT),
+            formatter_model=ScriptedChatModel(FORMATTED_TEXT),
+            page_cache=cache,
+        )
+        assert first.extract_text(pdf) == FORMATTED_TEXT
+
+        vision = ScriptedChatModel()
+        formatter = ScriptedChatModel()
+        second = OCRService(vision_model=vision, formatter_model=formatter, page_cache=cache)
+
+        assert second.extract_text(pdf) == FORMATTED_TEXT
+        assert vision.calls == []
+        assert formatter.calls == []
+
+    def test_another_vision_model_does_not_reuse_the_entry(self, tmp_path):
+        """Text one vision model produced is never served for a different one."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+        OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT, model_name="minicpm-v"),
+            page_cache=cache,
+        ).extract_text(pdf)
+
+        other_vision = ScriptedChatModel("read by another model", model_name="llava")
+        service = OCRService(vision_model=other_vision, page_cache=cache)
+
+        assert service.extract_text(pdf) == "read by another model"
+        assert len(other_vision.calls) == 1
+
+    def test_another_formatter_model_does_not_reuse_the_entry(self, tmp_path):
+        """Pass 2 is part of the answer, so its model is part of the entry."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+        OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT),
+            formatter_model=ScriptedChatModel(FORMATTED_TEXT, model_name="qwen2.5"),
+            page_cache=cache,
+        ).extract_text(pdf)
+
+        other_formatter = ScriptedChatModel("# Other markdown", model_name="llama3")
+        service = OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT),
+            formatter_model=other_formatter,
+            page_cache=cache,
+        )
+
+        assert service.extract_text(pdf) == "# Other markdown"
+        assert len(other_formatter.calls) == 1
+
+    def test_refresh_cache_re_reads_the_page_and_replaces_the_entry(self, tmp_path):
+        """A caller asking for fresh output gets it, and later callers get it too."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+        service_args = {"formatter_model": None, "page_cache": cache}
+        OCRService(vision_model=ScriptedChatModel("stale text"), **service_args).extract_text(pdf)
+
+        fresh = ScriptedChatModel("fresh text")
+        assert (
+            OCRService(vision_model=fresh, **service_args).extract_text(pdf, refresh_cache=True)
+            == "fresh text"
+        )
+        assert len(fresh.calls) == 1
+
+        later = OCRService(vision_model=ScriptedChatModel(), **service_args)
+        assert later.extract_text(pdf) == "fresh text"
+
+    def test_force_ocr_still_uses_the_cache(self, tmp_path):
+        """Forcing OCR only ignores embedded text; the page is still only read once."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [LONG_TEXT])
+        first = OCRService(vision_model=ScriptedChatModel(VISION_TEXT), page_cache=cache)
+        assert first.extract_text(pdf, force_ocr=True) == VISION_TEXT
+
+        vision = ScriptedChatModel()
+        service = OCRService(vision_model=vision, page_cache=cache)
+
+        assert service.extract_text(pdf, force_ocr=True) == VISION_TEXT
+        assert vision.calls == []
+
+    def test_empty_reads_are_not_remembered(self, tmp_path):
+        """A page the models found nothing on is read again rather than cached as empty."""
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+        OCRService(vision_model=ScriptedChatModel("   "), page_cache=cache).extract_text(pdf)
+
+        assert cache.sets == []
+
+    def test_images_are_cached_too(self, image_path):
+        """A standalone image file is remembered like a PDF page."""
+        cache = FakePageCache()
+        assert (
+            OCRService(vision_model=ScriptedChatModel(VISION_TEXT), page_cache=cache)
+            .extract_text(image_path)
+            == VISION_TEXT
+        )
+
+        vision = ScriptedChatModel()
+
+        assert OCRService(vision_model=vision, page_cache=cache).extract_text(
+            image_path
+        ) == VISION_TEXT
+        assert vision.calls == []
+
+    def test_a_page_repeated_in_one_document_is_read_once(self, tmp_path):
+        """A letterhead or cover page appearing twice costs one read, not two."""
+        vision = ScriptedChatModel(VISION_TEXT)
+        service = OCRService(vision_model=vision, page_cache=FakePageCache())
+
+        text = service.extract_text(make_pdf(tmp_path, [SHORT_TEXT, SHORT_TEXT]))
+
+        assert text == f"{VISION_TEXT}\n\n{VISION_TEXT}"
+        assert len(vision.calls) == 1

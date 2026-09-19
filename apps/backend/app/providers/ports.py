@@ -25,6 +25,11 @@ class Message:
 class ChatModel(Protocol):
     """Turns messages, optionally carrying images, into the whole reply as text."""
 
+    @property
+    def model_name(self) -> str:
+        """Name of the model answering, used to tell one model's output from another's."""
+        ...
+
     def chat(
         self,
         messages: Sequence[Message],

@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     # PDF pages OCR'd at once. Above 1, that many requests are in flight against the model
     # server at a time, so raise it only as far as that server can serve in parallel.
     OCR_PAGE_CONCURRENCY: int = Field(default=1, ge=1)
+    # Remember each page's OCR text in Redis, keyed by the page image and the models and
+    # prompts that read it, so an identical page is never read twice.
+    OCR_PAGE_CACHE_ENABLED: bool = True
+    OCR_PAGE_CACHE_TTL_SECONDS: int = Field(default=60 * 60 * 24 * 30, ge=1)  # 30 days
 
     # Model requests (all roles): a request silent for this long fails as a model error
     MODEL_TIMEOUT_SECONDS: float = 300.0
