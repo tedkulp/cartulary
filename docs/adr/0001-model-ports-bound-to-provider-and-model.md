@@ -6,3 +6,4 @@ Services that need a model (OCR, embeddings, the assistant) receive it at constr
 
 - Provider selection happens in one place, the factory, which builds each role (vision, formatter, assistant, embedder) from settings.
 - A disabled capability is represented by no model (`None`), not by a flag inside the service.
+- The ports are **synchronous**, despite the project's general preference for async I/O. The services that use them run in Celery tasks, which are synchronous, as well as behind API handlers. Async ports would mean a sync twin for every adapter, the same doubling the notification service already suffers from. Async code reaches the models across the request-handler seam (FastAPI's threadpool), not through async ports (#18).
