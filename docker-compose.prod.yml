@@ -68,6 +68,7 @@ services:
       # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
+      - OCR_FORMATTER_MODEL=${OCR_FORMATTER_MODEL:-qwen2.5:7b-instruct-q4_K_M}
       - MODEL_TIMEOUT_SECONDS=${MODEL_TIMEOUT_SECONDS:-300}
       # Background workers configuration
       - ENABLE_DIRECTORY_WATCHER=${ENABLE_DIRECTORY_WATCHER:-true}
@@ -104,6 +105,7 @@ services:
       # Vision OCR configuration (LLM-based)
       - OCR_ENABLED=${OCR_ENABLED:-false}
       - VISION_OCR_MODEL=${VISION_OCR_MODEL:-minicpm-v}
+      - OCR_FORMATTER_MODEL=${OCR_FORMATTER_MODEL:-qwen2.5:7b-instruct-q4_K_M}
       - MODEL_TIMEOUT_SECONDS=${MODEL_TIMEOUT_SECONDS:-300}
     deploy:
       resources:
