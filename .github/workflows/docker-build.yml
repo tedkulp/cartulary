@@ -143,6 +143,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
+            type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=Cartulary ${{ matrix.name }}
@@ -168,7 +169,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:${{ github.ref_name }}-${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-${{ matrix.image }}:sha-${{ github.sha }}
           format: 'sarif'
           output: 'trivy-results-${{ matrix.name }}.sarif'
           severity: 'CRITICAL,HIGH'
@@ -196,13 +197,13 @@ jobs:
 
       - name: Test backend image
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ github.ref_name }}-${{ github.sha }}
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:${{ github.ref_name }}-${{ github.sha }} python --version
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }}
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }} python --version
 
       - name: Test web image
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:${{ github.ref_name }}-${{ github.sha }}
-          docker run -d --name test-web ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:${{ github.ref_name }}-${{ github.sha }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
+          docker run -d --name test-web ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
           sleep 5
           docker inspect test-web --format='{{.State.Status}}'
           docker stop test-web
