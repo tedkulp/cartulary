@@ -34,6 +34,14 @@ def ocr_service() -> OCRService:
     return OCRService()
 
 
+@pytest.fixture
+def image_path(tmp_path) -> str:
+    """A tiny PNG image file."""
+    path = tmp_path / "scan.png"
+    path.write_bytes(fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 4, 4), False).tobytes("png"))
+    return str(path)
+
+
 class TestExtractTextFromPdf:
     """Tests for OCRService.extract_text() on PDFs."""
 
@@ -125,12 +133,6 @@ class TestExtractTextFromPdf:
 class TestExtractTextFromImage:
     """Tests for OCRService.extract_text() on image files."""
 
-    @pytest.fixture
-    def image_path(self, tmp_path) -> str:
-        path = tmp_path / "scan.png"
-        path.write_bytes(fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 4, 4), False).tobytes("png"))
-        return str(path)
-
     def test_image_bytes_reach_vision_model(self, image_path):
         """An image file's bytes are sent to the vision model unchanged."""
         vision = ScriptedChatModel(VISION_TEXT)
@@ -148,6 +150,102 @@ class TestExtractTextFromImage:
         service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
 
         assert service.extract_text(image_path) is None
+
+
+class TestFormatterOutputCleanup:
+    """Artifacts a reasoning or chatty formatter model leaves around its markdown are removed."""
+
+    def extracted_given_reply(
+        self, image_path: str, formatter_reply: str, vision_text: str = VISION_TEXT
+    ) -> Optional[str]:
+        """The text extracted from an image when the formatter model replies as given."""
+        service = OCRService(
+            vision_model=ScriptedChatModel(vision_text),
+            formatter_model=ScriptedChatModel(formatter_reply),
+        )
+        return service.extract_text(image_path)
+
+    def test_removes_think_blocks(self, image_path):
+        """Reasoning inside <think> tags, anywhere in the reply, is dropped."""
+        reply = (
+            "<think>\nThe user wants markdown.\n</think>\n\n# Invoice\n\n"
+            "<THINK>keep order</THINK>Total: 42.00"
+        )
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice\n\nTotal: 42.00"
+
+    def test_removes_leading_reasoning_closed_without_opening_tag(self, image_path):
+        """Reasoning whose opening tag the chat template supplied ends at a bare </think>."""
+        reply = "Okay, the text is an invoice.\n</think>\n\n# Invoice"
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice"
+
+    def test_drops_reasoning_that_never_closes(self, image_path):
+        """A reply cut off inside <think> keeps only the text before the tag."""
+        reply = "# Invoice\n\n<think>\nWait, should the total be a heading? Let me"
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice"
+
+    def test_reply_that_is_only_unfinished_reasoning_yields_nothing(self, image_path):
+        """A reply cut off inside a leading <think> has no document text in it."""
+        reply = "<think>\nThe user wants markdown. First I should"
+
+        assert self.extracted_given_reply(image_path, reply) == ""
+
+    @pytest.mark.parametrize("opening", ["```", "```markdown", "```md", "``` Markdown"])
+    def test_unwraps_outer_code_fence(self, image_path, opening):
+        """A reply wrapped whole in one code fence is unwrapped."""
+        reply = f"\n{opening}\n# Invoice\n\nTotal: 42.00\n```\n"
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice\n\nTotal: 42.00"
+
+    def test_keeps_separate_code_blocks_that_open_and_close_the_reply(self, image_path):
+        """Two code blocks with text between them are content, not one wrapper."""
+        reply = "```\nSKU 1001\n```\n\nShipped together with\n\n```\nSKU 2002\n```"
+
+        assert self.extracted_given_reply(image_path, reply) == reply
+
+    @pytest.mark.parametrize(
+        "preamble",
+        [
+            "Here is the formatted text:",
+            "Here's the Markdown:",
+            "Sure! Here is the text converted to Markdown:",
+            "Certainly, below is the formatted output:",
+        ],
+    )
+    def test_strips_leading_preamble(self, image_path, preamble):
+        """A chatty line introducing the markdown is dropped."""
+        reply = f"{preamble}\n\n# Invoice\n\nTotal: 42.00"
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice\n\nTotal: 42.00"
+
+    def test_strips_preamble_before_fenced_reply(self, image_path):
+        """A preamble followed by a fenced reply loses both."""
+        reply = "Here is the Markdown:\n```markdown\n# Invoice\n```"
+
+        assert self.extracted_given_reply(image_path, reply) == "# Invoice"
+
+    def test_keeps_preamble_like_lines_after_the_start(self, image_path):
+        """Only the reply's first line can be a preamble; later lines are document content."""
+        reply = "# Lab report\n\nBelow is the output of the test run:\n\nPassed"
+
+        assert self.extracted_given_reply(image_path, reply) == reply
+
+
+    def test_keeps_think_tags_the_page_itself_contains(self, image_path):
+        """Tags the vision model read off the page are document content, not reasoning."""
+        page = "Use the <think> tag to open a block and </think> to close it."
+        reply = f"# Tag guide\n\n{page}\n\nMore content"
+
+        assert self.extracted_given_reply(image_path, reply, vision_text=page) == reply
+
+    def test_keeps_an_opening_line_the_page_itself_contains(self, image_path):
+        """A first line the vision model read off the page is document content, not a preamble."""
+        opening = "Here is the text of the agreement between the parties:"
+        reply = f"{opening}\n\n1. Terms"
+
+        assert self.extracted_given_reply(image_path, reply, vision_text=opening) == reply
 
 
 class TestDetectLanguage:

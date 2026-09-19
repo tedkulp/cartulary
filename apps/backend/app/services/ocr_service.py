@@ -1,5 +1,6 @@
 """OCR service for extracting text from documents using a vision model."""
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -48,6 +49,51 @@ Convert the following text into Markdown while preserving structure exactly.
 
 TEXT:
 {raw_text}"""
+
+
+# Reasoning a thinking model wraps in <think> tags
+THINK_BLOCK = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
+# Reasoning whose opening tag the chat template put in the prompt: all text up to a bare </think>
+LEADING_UNOPENED_THINK = re.compile(r"^.*?</think>", re.IGNORECASE | re.DOTALL)
+# Reasoning cut off before its closing tag: everything from the <think> on
+UNCLOSED_THINK = re.compile(r"<think>.*$", re.IGNORECASE | re.DOTALL)
+# A whole reply wrapped in one code fence, optionally tagged as markdown
+OUTER_FENCE = re.compile(
+    r"```[ \t]*(?:markdown|md)?[ \t]*\n(?P<body>.*)\n```", re.IGNORECASE | re.DOTALL
+)
+FENCE_LINE = re.compile(r"^[ \t]*```", re.MULTILINE)
+# A first line introducing the reply ("Sure! Here is the formatted text:"). It must name what
+# it introduces and end in a colon, so most documents that open with "Here is..." are left alone.
+PREAMBLE = re.compile(
+    r"^(?:(?:sure|certainly|okay|ok|of course)[!,.]?[ \t]*)?"
+    r"(?:here is|here's|below is)\b[^\n]*"
+    r"\b(?:markdown|formatted|converted|text|output|result)\b[^\n]*:[ \t]*(?:\n|$)",
+    re.IGNORECASE,
+)
+
+
+def _clean_formatter_output(text: str, raw_text: str) -> str:
+    """Remove artifacts a reasoning or chatty formatter model leaves around its markdown.
+
+    Anything that also appears in the vision model's raw text came off the page, so it is
+    document content and kept.
+    """
+    if "think>" not in raw_text.lower():
+        text = THINK_BLOCK.sub("", text)
+        text = LEADING_UNOPENED_THINK.sub("", text)
+        text = UNCLOSED_THINK.sub("", text)
+    text = text.strip()
+
+    preamble = PREAMBLE.match(text)
+    if preamble and preamble.group().strip() not in raw_text:
+        text = text[preamble.end() :].strip()
+
+    fenced = OUTER_FENCE.fullmatch(text)
+    # A fence inside the body means the reply's first and last fences belong to different blocks
+    if fenced and not FENCE_LINE.search(fenced.group("body")):
+        text = fenced.group("body")
+
+    return text.strip()
 
 
 class OCRService:
@@ -154,7 +200,13 @@ class OCRService:
         logger.info(formatted_text)
         logger.info("--- END FORMATTED TEXT ---")
 
-        return formatted_text.strip()
+        final_text = _clean_formatter_output(formatted_text, raw_text)
+        logger.info(f"Cleaned formatter output to {len(final_text)} chars")
+        logger.info("--- BEGIN FINAL OUTPUT ---")
+        logger.info(final_text)
+        logger.info("--- END FINAL OUTPUT ---")
+
+        return final_text
 
     def _extract_text_from_pdf(self, pdf_path: str, force_ocr: bool = False) -> Optional[str]:
         """

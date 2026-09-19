@@ -383,7 +383,7 @@ Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2.
 - Pages render at `fitz.Matrix(2, 2)` (~144 DPI). Raise it for higher fidelity at the cost of speed.
 - Pass 2 is skipped when pass 1 returns under 10 characters.
 - Pages are processed sequentially, and each page's raw and formatted output is logged.
-- A reasoning or chatty formatter model can leak `<think>` tags or preambles into `ocr_text`; there is currently no post-processing cleanup (see issue #3).
+- Pass-2 output is cleaned before use: `<think>` blocks (including one missing its opening or closing tag), a single fence wrapping the whole reply, and a leading "Here is the formatted text:"-style preamble are removed. Tags or an opening line that also appear in the pass-1 raw text are kept as document content. Each page's cleaned text is logged between `--- BEGIN FINAL OUTPUT ---` markers.
 - `detect_language()` uses `langdetect` with a fixed seed for reproducibility, and falls back to `"en"` on unusable text.
 
 ## Testing Strategy
