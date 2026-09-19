@@ -5,11 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
+from app.providers.factory import get_embedder
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_service import ChatService
 from app.services.vector_search_service import VectorSearchService
 from app.services.llm_service import LLMService
-from app.services.embedding_service import EmbeddingService
 from app.api.v1.auth import get_current_user
 from app.config import settings
 
@@ -20,20 +20,8 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
     """Get chat service with dependencies."""
-    # Create embedding service
-    embedding_service = EmbeddingService(
-        provider=settings.EMBEDDING_PROVIDER,
-        model_name=settings.EMBEDDING_MODEL,
-        api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
-        dimension=settings.EMBEDDING_DIMENSION,
-        base_url=settings.LLM_BASE_URL,
-    )
-
     # Create vector search service
-    vector_search_service = VectorSearchService(
-        db=db,
-        embedding_service=embedding_service,
-    )
+    vector_search_service = VectorSearchService(db=db, embedder=get_embedder())
 
     # Create LLM service
     llm_service = LLMService(

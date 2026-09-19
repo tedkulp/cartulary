@@ -3,9 +3,6 @@
 The offline tests use real local sockets. The contract tests talk to a real Ollama and
 only run with `pytest --live`.
 """
-import socket
-from typing import Iterator
-
 import fitz
 import pytest
 
@@ -13,23 +10,6 @@ from app.config import settings
 from app.providers import Message, ModelError
 from app.providers.factory import DEFAULT_OLLAMA_HOST
 from app.providers.ollama import OllamaChatModel
-
-
-@pytest.fixture
-def unused_port() -> int:
-    """A local port with nothing listening on it."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-@pytest.fixture
-def silent_server() -> Iterator[str]:
-    """A local server that accepts connections but never replies."""
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        sock.listen()
-        yield f"http://127.0.0.1:{sock.getsockname()[1]}"
 
 
 class TestOllamaChatModelFailures:

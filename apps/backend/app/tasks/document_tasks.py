@@ -10,9 +10,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models.document import Document, DocumentEmbedding
-from app.providers.factory import get_formatter_model, get_vision_model
+from app.providers.factory import get_embedder, get_formatter_model, get_vision_model
 from app.services.ocr_service import OCRService
-from app.services.embedding_service import EmbeddingService
 from app.services.notification_service import notification_service
 from app.tasks.celery_app import celery_app
 
@@ -184,6 +183,11 @@ def generate_embeddings(self, document_id: str) -> dict:
     from app.database import engine
     engine.dispose()
 
+    embedder = get_embedder()
+    if embedder is None:
+        logger.info(f"Embeddings disabled, skipping document {document_id}")
+        return {"status": "skipped", "message": "Embeddings disabled"}
+
     db: Session = SessionLocal()
     try:
         # Get document from database including metadata using raw SQL
@@ -247,25 +251,7 @@ def generate_embeddings(self, document_id: str) -> dict:
         ).delete()
         db.commit()
 
-        # Initialize embedding service with settings
-        from app.config import settings
-
-        logger.info(f"About to initialize EmbeddingService with provider={settings.EMBEDDING_PROVIDER}")
-
-        try:
-            embedding_service = EmbeddingService(
-                provider=settings.EMBEDDING_PROVIDER,
-                model_name=settings.EMBEDDING_MODEL,
-                api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
-                dimension=settings.EMBEDDING_DIMENSION,
-                base_url=settings.LLM_BASE_URL if settings.EMBEDDING_PROVIDER == "ollama" else None,
-            )
-            logger.info(f"EmbeddingService initialized successfully")
-        except Exception as init_error:
-            logger.error(f"Failed to initialize EmbeddingService: {init_error}", exc_info=True)
-            raise
-
-        logger.info(f"Using {settings.EMBEDDING_PROVIDER} embeddings with model {settings.EMBEDDING_MODEL} (dimension: {settings.EMBEDDING_DIMENSION})")
+        logger.info(f"Using embedder {embedder!r} (dimension: {embedder.dimension})")
 
         # Chunk the text
         logger.info(f"About to chunk enriched text ({len(enriched_text)} characters)")
@@ -294,12 +280,12 @@ def generate_embeddings(self, document_id: str) -> dict:
             logger.warning(f"No chunks generated for document {document_id}")
             return {"status": "skipped", "message": "No chunks to embed"}
 
-        # Generate embeddings for all chunks (process in batches of 8 to avoid memory issues)
+        # Generate embeddings for all chunks (the embedder batches as its provider needs)
         logger.info(f"About to start embedding generation for {len(chunks)} chunks...")
         logger.info(f"First chunk preview: {chunks[0][:100]}...")
 
         try:
-            embeddings = embedding_service.generate_embeddings(chunks, batch_size=8)
+            embeddings = embedder.embed(chunks)
             logger.info(f"Completed embedding generation - got {len(embeddings)} embeddings")
         except Exception as embed_error:
             logger.error(f"Failed to generate embeddings: {embed_error}", exc_info=True)
@@ -313,7 +299,7 @@ def generate_embeddings(self, document_id: str) -> dict:
                 chunk_index=idx,
                 chunk_text=chunk,
                 embedding=embedding,
-                embedding_model=embedding_service.model_name,
+                embedding_model=embedder.model_name,
             )
             db.add(doc_embedding)
 

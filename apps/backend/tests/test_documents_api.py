@@ -5,8 +5,10 @@ from typing import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from app.api.v1 import documents
+from app.config import settings
 from app.schemas.document import DocumentUpdate
 
 
@@ -72,3 +74,30 @@ class TestUpdateDocument:
         assert document.is_public is True
         db.commit.assert_called_once()
         enqueue_embeddings.assert_not_called()
+
+
+class TestRegenerateEmbeddings:
+    """Tests for the regenerate_embeddings endpoint handler."""
+
+    def test_refuses_when_embeddings_disabled(
+        self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With no embedder, the task would skip, so the endpoint must not claim it started."""
+        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", False)
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
+
+        with pytest.raises(HTTPException) as raised:
+            documents.regenerate_embeddings(document_id=document.id, document=document)
+
+        assert raised.value.status_code == 400
+        enqueue_embeddings.assert_not_called()
+
+    def test_enqueues_when_embeddings_enabled(
+        self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", True)
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
+
+        documents.regenerate_embeddings(document_id=document.id, document=document)
+
+        enqueue_embeddings.assert_called_once_with(str(document.id))

@@ -1,5 +1,7 @@
 """Shared pytest fixtures and test environment setup."""
 import os
+import socket
+from typing import Iterator
 
 import pytest
 
@@ -27,3 +29,20 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     for item in items:
         if "live" in item.keywords:
             item.add_marker(skip_live)
+
+
+@pytest.fixture
+def unused_port() -> int:
+    """A local port with nothing listening on it."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+@pytest.fixture
+def silent_server() -> Iterator[str]:
+    """A local server that accepts connections but never replies."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.listen()
+        yield f"http://127.0.0.1:{sock.getsockname()[1]}"

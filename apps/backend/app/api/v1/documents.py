@@ -311,6 +311,14 @@ def regenerate_embeddings(
             detail="Document has no extracted text. Run OCR first."
         )
 
+    # Check if embeddings are enabled
+    from app.config import settings
+    if not settings.EMBEDDING_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Embedding generation is disabled in configuration."
+        )
+
     # Trigger embedding generation
     from app.tasks.document_tasks import generate_embeddings
 

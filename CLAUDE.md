@@ -636,7 +636,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### Out of Memory (Embeddings)
 - Use Ollama embeddings (offloads to external service)
-- If using local embeddings, reduce batch size
+- If using local embeddings, reduce `ENCODE_BATCH_SIZE` in `app/providers/local.py`
 - Use smaller embedding model (all-MiniLM-L6-v2: 384 dims instead of nomic-embed-text: 768 dims)
 - Process fewer chunks per document
 
@@ -748,7 +748,7 @@ When starting a new session, provide:
 
 ### Areas Requiring Special Attention
 - **Ollama dependency**: OCR and embeddings require Ollama running and accessible
-- **Vector embeddings**: Dimension must match model (768 for nomic-embed-text, 384 for local, 1536 for OpenAI)
+- **Vector embeddings**: `EMBEDDING_DIMENSION` must match the model (768 for nomic-embed-text, 384 for local, 1536 for OpenAI); nothing guesses it from the model name. The embedder comes from `get_embedder()` in `app/providers/factory.py`, which returns `None` when `EMBEDDING_ENABLED` is false
 - **Vision models**: Ensure Ollama has the vision model pulled (minicpm-v, llava, gemma3)
 - **Async operations**: Use async/await consistently in backend
 - **Error handling**: Provide user-friendly messages, log detailed errors

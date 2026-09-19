@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentEmbedding
-from app.services.embedding_service import EmbeddingService
+from app.providers import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -15,27 +15,16 @@ logger = logging.getLogger(__name__)
 class VectorSearchService:
     """Service for performing vector similarity search."""
 
-    def __init__(self, db: Session, embedding_service: Optional[EmbeddingService] = None):
+    def __init__(self, db: Session, embedder: Optional[Embedder]):
         """
         Initialize vector search service.
 
         Args:
             db: Database session
-            embedding_service: Optional embedding service (will create if not provided)
+            embedder: Embedder for query text, or None when embeddings are disabled
         """
         self.db = db
-        if embedding_service:
-            self.embedding_service = embedding_service
-        else:
-            # Create embedding service with settings
-            from app.config import settings
-            self.embedding_service = EmbeddingService(
-                provider=settings.EMBEDDING_PROVIDER,
-                model_name=settings.EMBEDDING_MODEL,
-                api_key=settings.OPENAI_API_KEY if settings.EMBEDDING_PROVIDER == "openai" else None,
-                dimension=settings.EMBEDDING_DIMENSION,
-                base_url=settings.LLM_BASE_URL,
-            )
+        self.embedder = embedder
 
     def vector_search(
         self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.3
@@ -53,8 +42,14 @@ class VectorSearchService:
         Returns:
             List of (Document, similarity_score, chunk_text) tuples, ordered by similarity desc
         """
-        # Generate embedding for query
-        query_embedding = self.embedding_service.generate_embedding(query)
+        if self.embedder is None:
+            # Embeddings are disabled, so there is nothing to search.
+            return []
+
+        if query.strip():
+            query_embedding = self.embedder.embed([query])[0]
+        else:
+            query_embedding = [0.0] * self.embedder.dimension
 
         # Perform vector search using pgvector's cosine similarity operator (<=>)
         # Note: pgvector uses distance (lower is better), so we calculate 1 - distance to get similarity

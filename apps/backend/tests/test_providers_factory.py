@@ -1,14 +1,16 @@
-"""Tests for the model factory's OCR roles."""
+"""Tests for the model factory's OCR and embedder roles."""
 import pytest
 
 from app.config import settings
 from app.providers import factory
-from app.providers.ollama import OllamaChatModel
+from app.providers.local import LocalEmbedder
+from app.providers.ollama import OllamaChatModel, OllamaEmbedder
+from app.providers.openai import OpenAIEmbedder
 
 
 @pytest.fixture(autouse=True)
 def fresh_factory(monkeypatch):
-    """Configure OCR explicitly and clear the per-process cache around each test."""
+    """Configure OCR and the model host explicitly and clear the per-process cache around each test."""
     monkeypatch.setattr(settings, "OCR_ENABLED", True)
     monkeypatch.setattr(settings, "VISION_OCR_MODEL", "vision-model")
     monkeypatch.setattr(settings, "OCR_FORMATTER_MODEL", "formatter-model")
@@ -46,3 +48,69 @@ class TestOcrRoles:
         monkeypatch.setattr(settings, "OCR_ENABLED", False)
 
         assert build() is None
+
+
+class TestEmbedderRole:
+    @pytest.fixture(autouse=True)
+    def embedding_settings(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", True)
+        monkeypatch.setattr(settings, "EMBEDDING_MODEL", "embedding-model")
+        monkeypatch.setattr(settings, "EMBEDDING_DIMENSION", 768)
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", "openai-key")
+        factory.get_embedder.cache_clear()
+        yield
+        factory.get_embedder.cache_clear()
+
+    def test_builds_ollama_embedder_from_settings(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "ollama")
+
+        embedder = factory.get_embedder()
+
+        assert isinstance(embedder, OllamaEmbedder)
+        assert embedder.model_name == "embedding-model"
+        assert embedder.dimension == 768
+        assert embedder.host == "http://ollama.test:11434"
+        assert embedder.timeout == 42.0
+
+    def test_ollama_embedder_defaults_to_local_ollama_without_base_url(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "ollama")
+        monkeypatch.setattr(settings, "LLM_BASE_URL", None)
+
+        assert factory.get_embedder().host == "http://localhost:11434"
+
+    def test_builds_openai_embedder_with_openai_key(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "openai")
+
+        embedder = factory.get_embedder()
+
+        assert isinstance(embedder, OpenAIEmbedder)
+        assert embedder.model_name == "embedding-model"
+        assert embedder.dimension == 768
+        assert embedder.api_key == "openai-key"
+        assert embedder.timeout == 42.0
+
+    def test_builds_local_embedder(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "local")
+
+        embedder = factory.get_embedder()
+
+        assert isinstance(embedder, LocalEmbedder)
+        assert embedder.model_name == "embedding-model"
+        assert embedder.dimension == 768
+
+    def test_rejects_unknown_provider(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "gemini")
+
+        with pytest.raises(ValueError, match="EMBEDDING_PROVIDER"):
+            factory.get_embedder()
+
+    def test_is_cached_per_process(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "ollama")
+
+        assert factory.get_embedder() is factory.get_embedder()
+
+    def test_returns_no_embedder_when_embeddings_disabled(self, monkeypatch):
+        monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "ollama")
+        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", False)
+
+        assert factory.get_embedder() is None

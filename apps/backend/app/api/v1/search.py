@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.dependencies import get_current_user, get_db
 from app.models.user import User
+from app.providers.factory import get_embedder
 from app.schemas.document import DocumentResponse
 from app.services.search_service import SearchService
 from app.services.vector_search_service import VectorSearchService
@@ -39,7 +40,7 @@ def get_search_service(db: Session = Depends(get_db)) -> SearchService:
 
 def get_vector_search_service(db: Session = Depends(get_db)) -> VectorSearchService:
     """Dependency to get vector search service."""
-    return VectorSearchService(db)
+    return VectorSearchService(db=db, embedder=get_embedder())
 
 
 @router.get("", response_model=List[DocumentResponse])

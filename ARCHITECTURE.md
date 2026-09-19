@@ -91,7 +91,7 @@ apps/backend/
 │   ├── schemas/             # Pydantic schemas
 │   ├── services/            # Business logic
 │   │   ├── ocr_service.py   # Ollama vision OCR
-│   │   ├── embedding_service.py  # Text embeddings
+│   │   ├── vector_search_service.py  # Semantic search
 │   │   ├── llm_service.py   # LLM metadata extraction
 │   │   ├── search_service.py     # Hybrid search
 │   │   └── ...

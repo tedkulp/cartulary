@@ -7,8 +7,10 @@ from functools import lru_cache
 from typing import Optional
 
 from app.config import settings
-from app.providers.ollama import OllamaChatModel
-from app.providers.ports import ChatModel
+from app.providers.local import LocalEmbedder
+from app.providers.ollama import OllamaChatModel, OllamaEmbedder
+from app.providers.openai import OpenAIEmbedder
+from app.providers.ports import ChatModel, Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -41,3 +43,36 @@ def get_formatter_model() -> Optional[ChatModel]:
     model = _ollama_chat_model(settings.OCR_FORMATTER_MODEL)
     logger.info(f"Formatter model: {model!r}")
     return model
+
+
+@lru_cache(maxsize=None)
+def get_embedder() -> Optional[Embedder]:
+    """The embedder for document chunks and search queries, from the EMBEDDING_* settings."""
+    if not settings.EMBEDDING_ENABLED:
+        return None
+    provider = settings.EMBEDDING_PROVIDER
+    model = settings.EMBEDDING_MODEL
+    dimension = settings.EMBEDDING_DIMENSION
+    embedder: Embedder
+    if provider == "ollama":
+        embedder = OllamaEmbedder(
+            host=settings.LLM_BASE_URL or DEFAULT_OLLAMA_HOST,
+            model=model,
+            dimension=dimension,
+            timeout=settings.MODEL_TIMEOUT_SECONDS,
+        )
+    elif provider == "openai":
+        embedder = OpenAIEmbedder(
+            api_key=settings.OPENAI_API_KEY,
+            model=model,
+            dimension=dimension,
+            timeout=settings.MODEL_TIMEOUT_SECONDS,
+        )
+    elif provider == "local":
+        embedder = LocalEmbedder(model=model, dimension=dimension)
+    else:
+        raise ValueError(
+            f"Unknown EMBEDDING_PROVIDER {provider!r}: expected ollama, openai or local"
+        )
+    logger.info(f"Embedder: {embedder!r} (dimension {dimension})")
+    return embedder
