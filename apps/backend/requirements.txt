@@ -28,8 +28,6 @@ itsdangerous>=2.1.0  # For secure session handling
 
 # Storage
 aiofiles>=23.0.0
-boto3>=1.28.0
-aioboto3>=12.0.0
 
 # OCR & PDF
 PyMuPDF>=1.23.0  # For PDF text extraction and page-to-image conversion
