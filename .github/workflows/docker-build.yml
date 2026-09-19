@@ -187,6 +187,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name != 'pull_request'
+    timeout-minutes: 15
     steps:
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -198,7 +199,8 @@ jobs:
       - name: Test backend image
         run: |
           docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }}
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }} python --version
+          # Bypass entrypoint.sh, which blocks until a postgres host is reachable
+          docker run --rm --entrypoint python ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }} --version
 
       - name: Test web image
         run: |
