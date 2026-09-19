@@ -1,13 +1,153 @@
 """Tests for OCRService."""
+from pathlib import Path
+from typing import List, Optional
+
+import fitz
 import pytest
 
+from app.providers import ModelError
 from app.services.ocr_service import OCRService
+from tests.fakes import ScriptedChatModel
+
+LONG_TEXT = "This page carries plenty of embedded text, well over fifty characters."
+SHORT_TEXT = "Page 2"
+VISION_TEXT = "Raw text the vision model read off the page"
+FORMATTED_TEXT = "# Formatted markdown"
+
+
+def make_pdf(tmp_path: Path, pages: List[Optional[str]]) -> str:
+    """Write a PDF with one page per entry: its embedded text, or None for a blank page."""
+    doc = fitz.open()
+    for text in pages:
+        page = doc.new_page()
+        if text:
+            page.insert_text((72, 72), text)
+    path = tmp_path / "doc.pdf"
+    doc.save(path)
+    doc.close()
+    return str(path)
 
 
 @pytest.fixture
 def ocr_service() -> OCRService:
-    """OCR service instance (no Ollama client is created until OCR runs)."""
+    """OCR service with no models, for tests that never reach a model."""
     return OCRService()
+
+
+class TestExtractTextFromPdf:
+    """Tests for OCRService.extract_text() on PDFs."""
+
+    def test_uses_long_embedded_text_without_vision(self, tmp_path):
+        """A page with at least 50 chars of embedded text is used as-is."""
+        vision = ScriptedChatModel()
+        service = OCRService(vision_model=vision, formatter_model=ScriptedChatModel())
+
+        text = service.extract_text(make_pdf(tmp_path, [LONG_TEXT]))
+
+        assert text.strip() == LONG_TEXT
+        assert vision.calls == []
+
+    def test_short_embedded_text_goes_to_vision_then_formatter(self, tmp_path):
+        """A page with under 50 chars of embedded text is read by the vision model."""
+        vision = ScriptedChatModel(VISION_TEXT)
+        formatter = ScriptedChatModel(FORMATTED_TEXT)
+        service = OCRService(vision_model=vision, formatter_model=formatter)
+
+        text = service.extract_text(make_pdf(tmp_path, [SHORT_TEXT]))
+
+        assert text == FORMATTED_TEXT
+        assert len(vision.calls) == 1
+        assert VISION_TEXT in formatter.calls[0][-1].content
+
+    def test_force_ocr_ignores_embedded_text(self, tmp_path):
+        """Forcing OCR sends even a page with long embedded text to the vision model."""
+        vision = ScriptedChatModel(VISION_TEXT)
+        service = OCRService(vision_model=vision, formatter_model=ScriptedChatModel(FORMATTED_TEXT))
+
+        text = service.extract_text(make_pdf(tmp_path, [LONG_TEXT]), force_ocr=True)
+
+        assert text == FORMATTED_TEXT
+        assert LONG_TEXT not in text
+        assert len(vision.calls) == 1
+
+    def test_force_ocr_failure_does_not_fall_back_to_embedded_text(self, tmp_path):
+        """When forced OCR fails, the page yields nothing rather than its embedded text."""
+        service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
+
+        assert service.extract_text(make_pdf(tmp_path, [LONG_TEXT]), force_ocr=True) == ""
+
+    def test_short_vision_output_skips_formatter(self, tmp_path):
+        """Vision output under 10 chars is used as-is, without calling the formatter."""
+        formatter = ScriptedChatModel()
+        service = OCRService(vision_model=ScriptedChatModel("  tiny \n"), formatter_model=formatter)
+
+        text = service.extract_text(make_pdf(tmp_path, [None]))
+
+        assert text == "tiny"
+        assert formatter.calls == []
+
+    def test_no_formatter_model_returns_raw_vision_text(self, tmp_path):
+        """With no formatter model, pass 2 is skipped."""
+        service = OCRService(vision_model=ScriptedChatModel(f"  {VISION_TEXT}\n"))
+
+        assert service.extract_text(make_pdf(tmp_path, [None])) == VISION_TEXT
+
+    def test_model_error_on_one_page_keeps_other_pages(self, tmp_path):
+        """A vision failure on one page doesn't lose the text of the others."""
+        vision = ScriptedChatModel(ModelError("model went away"), VISION_TEXT)
+        service = OCRService(vision_model=vision)
+
+        text = service.extract_text(make_pdf(tmp_path, [None, LONG_TEXT, None]))
+
+        assert LONG_TEXT in text
+        assert VISION_TEXT in text
+        assert len(vision.calls) == 2
+
+    def test_page_image_reaches_vision_model_as_png(self, tmp_path):
+        """The rendered page is sent to the vision model as PNG bytes."""
+        vision = ScriptedChatModel(VISION_TEXT)
+        service = OCRService(vision_model=vision)
+
+        service.extract_text(make_pdf(tmp_path, [None]))
+
+        [message] = vision.calls[0]
+        [image] = message.images
+        assert image.startswith(b"\x89PNG\r\n\x1a\n")
+
+    def test_no_vision_model_uses_embedded_text_only(self, tmp_path, ocr_service):
+        """With no vision model, short embedded text is still used and blank pages yield nothing."""
+        text = ocr_service.extract_text(make_pdf(tmp_path, [SHORT_TEXT, None, LONG_TEXT]))
+
+        assert SHORT_TEXT in text
+        assert LONG_TEXT in text
+
+
+class TestExtractTextFromImage:
+    """Tests for OCRService.extract_text() on image files."""
+
+    @pytest.fixture
+    def image_path(self, tmp_path) -> str:
+        path = tmp_path / "scan.png"
+        path.write_bytes(fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 4, 4), False).tobytes("png"))
+        return str(path)
+
+    def test_image_bytes_reach_vision_model(self, image_path):
+        """An image file's bytes are sent to the vision model unchanged."""
+        vision = ScriptedChatModel(VISION_TEXT)
+        service = OCRService(vision_model=vision)
+
+        assert service.extract_text(image_path) == VISION_TEXT
+        assert list(vision.calls[0][0].images) == [Path(image_path).read_bytes()]
+
+    def test_no_vision_model_yields_nothing(self, image_path, ocr_service):
+        """With no vision model, images yield nothing."""
+        assert ocr_service.extract_text(image_path) is None
+
+    def test_model_error_yields_nothing(self, image_path):
+        """A vision failure on an image is reported as no text, not raised."""
+        service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
+
+        assert service.extract_text(image_path) is None
 
 
 class TestDetectLanguage:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models.document import Document, DocumentEmbedding
+from app.providers.factory import get_formatter_model, get_vision_model
 from app.services.ocr_service import OCRService
 from app.services.embedding_service import EmbeddingService
 from app.services.notification_service import notification_service
@@ -63,7 +64,9 @@ def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
         logger.info(f"Absolute file path: {absolute_path}")
 
         # Initialize OCR service
-        ocr_service = OCRService()
+        ocr_service = OCRService(
+            vision_model=get_vision_model(), formatter_model=get_formatter_model()
+        )
 
         # Extract text
         extracted_text = ocr_service.extract_text(absolute_path, force_ocr=force_ocr)

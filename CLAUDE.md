@@ -351,6 +351,10 @@ OCR runs in two passes in `apps/backend/app/services/ocr_service.py`:
 
 **Why two passes**: vision models read text well but follow formatting instructions poorly. Separating extraction from formatting gives better output from each, and either model can be swapped independently.
 
+**Models are passed in**: `OCRService(vision_model=..., formatter_model=...)` takes two **chat models** (the port in `app/providers/ports.py`) and never reads settings or builds clients. The factory in `app/providers/factory.py` builds both from settings (Ollama at `LLM_BASE_URL` for now), caches them per process, and returns `None` when `OCR_ENABLED` is false. With no vision model, PDFs use embedded text only and images yield nothing; with no formatter model, pass 2 is skipped. A model request that gets no response for `MODEL_TIMEOUT_SECONDS` (default 300) fails; the Ollama adapter streams, so this bounds each silence rather than the whole reply. Any provider failure, including a timeout, surfaces as `ModelError`, which OCR catches per page (the page keeps its embedded text, if any). See ADR 0001.
+
+In tests, `tests/fakes.py` provides `ScriptedChatModel` and `FakeEmbedder`, so OCR rules run with no model server. Live contract tests for adapters are marked `live` and run only with `pytest --live`.
+
 ### Model Recommendations
 
 **Pass 1 — vision (`VISION_OCR_MODEL`)**
@@ -449,6 +453,7 @@ LLM_BASE_URL=http://localhost:11434
 OCR_ENABLED=true
 VISION_OCR_MODEL=minicpm-v  # Pass 1: vision model, or llava, gemma3:4b-it-q4_K_M
 OCR_FORMATTER_MODEL=qwen2.5:7b-instruct-q4_K_M  # Pass 2: markdown formatter
+MODEL_TIMEOUT_SECONDS=300  # A model request silent for this long fails as a model error
 
 # Embeddings (Uses Ollama by default)
 EMBEDDING_ENABLED=true
