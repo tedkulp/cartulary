@@ -1,8 +1,9 @@
 """OCR service for extracting text from documents using a vision model."""
 import logging
 import re
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Tuple
 
 import fitz  # PyMuPDF
 from langdetect import DetectorFactory, detect
@@ -101,16 +102,25 @@ class OCRService:
 
     Either model may be None. With no vision model, PDFs yield only their embedded text
     and images yield nothing. With no formatter model, the vision model's raw text is used.
+
+    `page_concurrency` is the most PDF pages that may be in the models at once. Both passes
+    for one page run on the same thread, so it is also a ceiling on the model requests OCR
+    has outstanding. Rendering stays on the calling thread, because PyMuPDF is not
+    thread-safe; pages are joined in document order however they finish.
     """
 
     def __init__(
         self,
         vision_model: Optional[ChatModel] = None,
         formatter_model: Optional[ChatModel] = None,
+        page_concurrency: int = 1,
     ) -> None:
         """Initialize OCR service with the models for each pass."""
+        if page_concurrency < 1:
+            raise ValueError(f"page_concurrency must be at least 1, got {page_concurrency}")
         self.vision_model = vision_model
         self.formatter_model = formatter_model
+        self.page_concurrency = page_concurrency
 
     def extract_text(self, file_path: str, force_ocr: bool = False) -> Optional[str]:
         """
@@ -228,30 +238,76 @@ class OCRService:
             return None
 
         page_count = len(doc)
-        logger.info(f"PDF has {page_count} pages")
+        logger.info(f"PDF has {page_count} pages, {self.page_concurrency} OCR'd at a time")
 
-        all_text = []
-        processed_pages = []
+        # One slot per page, filled in whatever order the pages finish, joined in page order.
+        # Indexed by page index, which is one less than the page number the logs use.
+        page_text: List[Optional[str]] = [None] * page_count
+        # Pages submitted for OCR but not yet collected, by the page index each fills. Never
+        # larger than page_concurrency, so no more rendered images than that are held at once.
+        in_flight: Dict[Future[Optional[str]], int] = {}
 
-        with doc:
-            for page_num in range(page_count):
+        def collect_finished() -> None:
+            """Store every page that has finished, waiting for at least one to.
+
+            Collecting all of them rather than the oldest keeps the pool fed: one slow page
+            no longer holds back the slots of pages that finished behind it.
+            """
+            done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in done:
+                index = in_flight.pop(future)
                 try:
-                    text = self._extract_text_from_page(doc[page_num], page_num + 1, force_ocr)
+                    page_text[index] = future.result()
+                except RuntimeError as e:
+                    # Whatever went wrong on the worker, one page shouldn't lose the others
+                    logger.error(
+                        f"Failed to OCR page {index + 1} of {pdf_path}: {type(e).__name__}: {e}",
+                        exc_info=True,
+                    )
+
+        vision_model = self.vision_model
+
+        with doc, ThreadPoolExecutor(
+            max_workers=self.page_concurrency, thread_name_prefix="ocr-page"
+        ) as pool:
+            for index in range(page_count):
+                page_number = index + 1
+                try:
+                    embedded_text, is_enough = self._read_embedded_text(
+                        doc[index], page_number, force_ocr
+                    )
+                    if is_enough or vision_model is None:
+                        page_text[index] = embedded_text
+                        continue
+                    # Wait for a slot before rendering, so the image goes straight to a worker
+                    while len(in_flight) >= self.page_concurrency:
+                        collect_finished()
+                    image = self._render_page(doc[index], page_number)
                 except RuntimeError as e:
                     # PyMuPDF errors: one unreadable page shouldn't lose the others
                     logger.error(
-                        f"Failed to process page {page_num + 1} of {pdf_path}: "
+                        f"Failed to process page {page_number} of {pdf_path}: "
                         f"{type(e).__name__}: {e}",
                         exc_info=True,
                     )
-                    text = None
-                if text:
-                    all_text.append(text)
-                    processed_pages.append(page_num + 1)
-                else:
-                    logger.warning(
-                        f"Page {page_num + 1}: No text extracted (text is None or empty)"
-                    )
+                    continue
+                in_flight[
+                    pool.submit(self._ocr_page, vision_model, image, page_number, embedded_text)
+                ] = index
+
+            while in_flight:
+                collect_finished()
+
+        all_text = []
+        processed_pages = []
+        missing_pages = []
+        for index, text in enumerate(page_text):
+            if text:
+                all_text.append(text)
+                processed_pages.append(index + 1)
+            else:
+                missing_pages.append(index + 1)
+                logger.warning(f"Page {index + 1}: No text extracted (text is None or empty)")
 
         total_text = "\n\n".join(all_text)
         logger.info(
@@ -260,58 +316,71 @@ class OCRService:
         logger.info(f"Successfully processed pages: {processed_pages}")
         logger.info(f"Total extracted text: {len(total_text)} characters")
 
-        if len(all_text) < page_count:
-            missing_pages = [p for p in range(1, page_count + 1) if p not in processed_pages]
-            logger.warning(f"Missing {page_count - len(all_text)} pages: {missing_pages}")
+        if missing_pages:
+            logger.warning(f"Missing {len(missing_pages)} pages: {missing_pages}")
 
         return total_text
 
-    def _extract_text_from_page(
+    def _read_embedded_text(
         self, page: fitz.Page, page_number: int, force_ocr: bool
-    ) -> Optional[str]:
-        """Return one page's text: embedded text, or vision OCR when it is too short or forced."""
-        text = None
+    ) -> Tuple[Optional[str], bool]:
+        """One page's embedded text, and whether it is enough to use without vision OCR.
 
-        # If force_ocr is True, skip embedded text extraction entirely
+        Text is enough when there is at least MIN_EMBEDDED_TEXT_CHARS of it and OCR is not
+        forced. Whether anything can be done about text that isn't enough is the caller's
+        question: with no vision model, too little text is still all the page has.
+        """
         if force_ocr:
             logger.info(f"Page {page_number}: Forcing vision OCR (ignoring embedded text)")
-        else:
-            text = page.get_text()
+            return None, False
 
-        # Use vision OCR if: forced, no embedded text, or embedded text too short
-        should_use_vision_ocr = (
-            force_ocr or not text or len(text.strip()) < MIN_EMBEDDED_TEXT_CHARS
-        )
-
-        if not should_use_vision_ocr or self.vision_model is None:
-            if text:
-                logger.info(
-                    f"Page {page_number}: Extracted {len(text.strip())} chars of embedded text"
-                )
-            return text
-
-        if not force_ocr:
+        text = page.get_text()
+        if text and len(text.strip()) >= MIN_EMBEDDED_TEXT_CHARS:
             logger.info(
-                f"Page {page_number}: Embedded text too short "
-                f"({len(text.strip()) if text else 0} chars), attempting vision OCR"
+                f"Page {page_number}: Extracted {len(text.strip())} chars of embedded text"
             )
+            return text, True
 
-        # Render at 2x scale (~144 DPI) for better quality
+        logger.info(
+            f"Page {page_number}: Embedded text too short "
+            f"({len(text.strip()) if text else 0} chars)"
+        )
+        return text, False
+
+    def _render_page(self, page: fitz.Page, page_number: int) -> bytes:
+        """Render a page to PNG bytes at 2x scale (~144 DPI) for better quality.
+
+        PyMuPDF is not thread-safe, so rendering stays on the calling thread and only the
+        model calls that follow it fan out across workers.
+        """
         image = page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png")
         logger.info(f"Page {page_number}: Rendered page image, calling vision model...")
+        return image
 
+    def _ocr_page(
+        self,
+        vision_model: ChatModel,
+        image: bytes,
+        page_number: int,
+        embedded_text: Optional[str],
+    ) -> Optional[str]:
+        """Read one rendered page, falling back to its embedded text if the models fail.
+
+        Runs on a worker thread, one page per worker, so it touches nothing but its
+        arguments and the models.
+        """
         try:
-            vision_text = self._read_image(self.vision_model, image)
+            vision_text = self._read_image(vision_model, image)
         except ModelError as e:
             logger.error(f"Page {page_number}: Vision OCR failed: {e}")
-            vision_text = None
+            return embedded_text
 
         if vision_text:
             logger.info(f"Page {page_number}: Vision OCR extracted {len(vision_text)} characters")
             return vision_text
 
         logger.warning(f"Page {page_number}: Vision OCR returned None or empty text")
-        return text
+        return embedded_text
 
     def detect_language(self, text: str) -> str:
         """

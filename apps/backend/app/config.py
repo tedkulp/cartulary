@@ -2,7 +2,7 @@
 import json
 from typing import Any, List, Optional
 
-from pydantic import PostgresDsn, field_validator
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     OCR_ENABLED: bool = False
     VISION_OCR_MODEL: str = "minicpm-v"  # Ollama vision model for text extraction (pass 1)
     OCR_FORMATTER_MODEL: str = "qwen2.5:7b-instruct-q4_K_M"  # Ollama text model for formatting (pass 2)
+    # PDF pages OCR'd at once. Above 1, that many requests are in flight against the model
+    # server at a time, so raise it only as far as that server can serve in parallel.
+    OCR_PAGE_CONCURRENCY: int = Field(default=1, ge=1)
 
     # Model requests (all roles): a request silent for this long fails as a model error
     MODEL_TIMEOUT_SECONDS: float = 300.0

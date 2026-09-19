@@ -1,18 +1,22 @@
 """Tests for OCRService."""
+import threading
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import fitz
 import pytest
 
 from app.providers import ModelError
 from app.services.ocr_service import OCRService
-from tests.fakes import ScriptedChatModel
+from tests.fakes import ConcurrentChatModel, ScriptedChatModel
 
 LONG_TEXT = "This page carries plenty of embedded text, well over fifty characters."
 SHORT_TEXT = "Page 2"
 VISION_TEXT = "Raw text the vision model read off the page"
 FORMATTED_TEXT = "# Formatted markdown"
+# Generous: it bounds how long a wedged concurrency test hangs, not how fast one passes.
+BARRIER_TIMEOUT = 10.0
 
 
 def make_pdf(tmp_path: Path, pages: List[Optional[str]]) -> str:
@@ -281,3 +285,142 @@ class TestDetectLanguage:
         text = "Total 42.00 Date 2026-01-26 Invoice"
         results = {ocr_service.detect_language(text) for _ in range(20)}
         assert len(results) == 1
+
+
+def page_images(pdf_path: str) -> List[bytes]:
+    """The page images OCRService renders, in page order, so a fake can key replies on them."""
+    with fitz.open(pdf_path) as doc:
+        return [page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png") for page in doc]
+
+
+def page_index(pdf_path: str) -> Dict[bytes, int]:
+    """Maps each page image to its zero-based page number."""
+    return {image: number for number, image in enumerate(page_images(pdf_path))}
+
+
+def numbered_pages(count: int) -> List[str]:
+    """Short, visually distinct page texts: short enough that every page goes to vision OCR."""
+    return [f"Page {number}" for number in range(1, count + 1)]
+
+
+class TestPageConcurrency:
+    """Tests for OCRService's concurrent per-page OCR."""
+
+    def test_pages_keep_document_order_when_ocr_finishes_out_of_order(self, tmp_path):
+        """Combined text follows page order even when later pages finish OCR first."""
+        pdf = make_pdf(tmp_path, numbered_pages(4))
+        index_of = page_index(pdf)
+        replies = [f"text of page {number}" for number in range(1, 5)]
+        started = threading.Barrier(4, timeout=BARRIER_TIMEOUT)
+        finished = [threading.Event() for _ in replies]
+
+        def reply(messages):
+            page = index_of[messages[-1].images[0]]
+            started.wait()
+            # Each page waits for the one after it, so page 4 finishes first and page 1 last
+            if page + 1 < len(replies):
+                assert finished[page + 1].wait(timeout=BARRIER_TIMEOUT)
+            finished[page].set()
+            return replies[page]
+
+        service = OCRService(vision_model=ConcurrentChatModel(reply), page_concurrency=4)
+
+        assert service.extract_text(pdf) == "\n\n".join(replies)
+
+    def test_runs_pages_in_parallel_up_to_the_concurrency_setting(self, tmp_path):
+        """With a concurrency of 3, three pages are in the vision model at the same time."""
+        pdf = make_pdf(tmp_path, numbered_pages(6))
+        # Breaks, failing the test, unless three pages really are in flight together
+        together = threading.Barrier(3, timeout=BARRIER_TIMEOUT)
+
+        def reply(messages):
+            together.wait()
+            return "text of a page"
+
+        vision = ConcurrentChatModel(reply)
+        service = OCRService(vision_model=vision, page_concurrency=3)
+
+        service.extract_text(pdf)
+
+        assert vision.peak_running == 3
+        assert len(vision.calls) == 6
+
+    def test_a_slow_page_does_not_hold_back_the_pages_behind_it(self, tmp_path):
+        """A page still running never blocks submission of pages whose slots have freed.
+
+        Collecting the oldest in-flight page instead of any finished one would wedge here:
+        page 1 only finishes once page 4 has started, and page 4 is only submitted once a
+        slot frees, which under oldest-first means waiting for page 1.
+        """
+        pdf = make_pdf(tmp_path, numbered_pages(4))
+        index_of = page_index(pdf)
+        last_page_started = threading.Event()
+
+        def reply(messages):
+            page = index_of[messages[-1].images[0]]
+            if page == len(index_of) - 1:
+                last_page_started.set()
+            elif page == 0:
+                assert last_page_started.wait(timeout=BARRIER_TIMEOUT)
+            return f"text of page {page + 1}"
+
+        service = OCRService(vision_model=ConcurrentChatModel(reply), page_concurrency=2)
+
+        assert service.extract_text(pdf) == "\n\n".join(
+            f"text of page {number}" for number in range(1, 5)
+        )
+
+    def test_defaults_to_one_page_at_a_time(self, tmp_path):
+        """Without a concurrency setting, pages are OCR'd one after another as before."""
+        pdf = make_pdf(tmp_path, numbered_pages(3))
+
+        def reply(messages):
+            time.sleep(0.05)  # long enough that any overlap would be observed
+            return "text of a page"
+
+        vision = ConcurrentChatModel(reply)
+        service = OCRService(vision_model=vision)
+
+        service.extract_text(pdf)
+
+        assert vision.peak_running == 1
+        assert len(vision.calls) == 3
+
+    def test_failure_on_one_page_keeps_the_pages_beside_it(self, tmp_path):
+        """A vision failure is still isolated to its own page when pages run concurrently."""
+        pdf = make_pdf(tmp_path, ["Page 1", LONG_TEXT, "Page 3"])
+        index_of = page_index(pdf)
+
+        def reply(messages):
+            if index_of[messages[-1].images[0]] == 0:
+                raise ModelError("model went away")
+            return "text of page three"
+
+        service = OCRService(vision_model=ConcurrentChatModel(reply), page_concurrency=3)
+
+        text = service.extract_text(pdf)
+
+        assert text.index("Page 1") < text.index(LONG_TEXT) < text.index("text of page three")
+
+    def test_embedded_text_pages_keep_their_place_between_ocr_pages(self, tmp_path):
+        """Pages that need no OCR are ordered against the concurrent ones correctly."""
+        pdf = make_pdf(tmp_path, ["Page 1", LONG_TEXT, "Page 3", LONG_TEXT])
+        service = OCRService(
+            vision_model=ConcurrentChatModel(lambda messages: "text of an OCR'd page"),
+            page_concurrency=2,
+        )
+
+        text = service.extract_text(pdf)
+
+        assert [page.strip() for page in text.split("\n\n")] == [
+            "text of an OCR'd page",
+            LONG_TEXT,
+            "text of an OCR'd page",
+            LONG_TEXT,
+        ]
+
+    @pytest.mark.parametrize("concurrency", [0, -1])
+    def test_rejects_a_concurrency_below_one(self, concurrency):
+        """A page concurrency under 1 is a configuration error, not a silent no-op."""
+        with pytest.raises(ValueError, match="page_concurrency"):
+            OCRService(page_concurrency=concurrency)

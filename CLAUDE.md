@@ -375,14 +375,14 @@ In tests, `tests/fakes.py` provides `ScriptedChatModel` and `FakeEmbedder`, so O
 | `mistral` | Faster alternative |
 | `qwen2.5:14b-instruct` | More capable, slower |
 
-Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2.
+Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2. Raising `OCR_PAGE_CONCURRENCY` overlaps those per-page costs.
 
 ### Behavior Notes
 
 - Pages with embedded text are used as-is; vision OCR runs only when a page yields under 50 characters, or when `force_ocr` is set.
 - Pages render at `fitz.Matrix(2, 2)` (~144 DPI). Raise it for higher fidelity at the cost of speed.
 - Pass 2 is skipped when pass 1 returns under 10 characters.
-- Pages are processed sequentially, and each page's raw and formatted output is logged.
+- `OCR_PAGE_CONCURRENCY` (default 1) sets how many pages are OCR'd at once. Pages are rendered on the calling thread, since PyMuPDF is not thread-safe, and only the model calls fan out to a thread pool; the combined text always follows page order. Both passes for a page run together, so the setting is also a ceiling on the model requests outstanding at a time. Each page's raw and formatted output is logged.
 - Pass-2 output is cleaned before use: `<think>` blocks (including one missing its opening or closing tag), a single fence wrapping the whole reply, and a leading "Here is the formatted text:"-style preamble are removed. Tags or an opening line that also appear in the pass-1 raw text are kept as document content. Each page's cleaned text is logged between `--- BEGIN FINAL OUTPUT ---` markers.
 - `detect_language()` uses `langdetect` with a fixed seed for reproducibility, and falls back to `"en"` on unusable text.
 
@@ -453,6 +453,7 @@ LLM_BASE_URL=http://localhost:11434
 OCR_ENABLED=true
 VISION_OCR_MODEL=minicpm-v  # Pass 1: vision model, or llava, gemma3:4b-it-q4_K_M
 OCR_FORMATTER_MODEL=qwen2.5:7b-instruct-q4_K_M  # Pass 2: markdown formatter
+OCR_PAGE_CONCURRENCY=1  # PDF pages OCR'd at once; raise only as far as the model server serves in parallel
 MODEL_TIMEOUT_SECONDS=300  # A model request silent for this long fails as a model error
 
 # Embeddings (Uses Ollama by default)

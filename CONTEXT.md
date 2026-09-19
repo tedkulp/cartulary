@@ -29,3 +29,8 @@ The chat model that reads raw text off a page image in the first OCR pass.
 
 **Formatter model**:
 The chat model that turns the vision model's raw text into markdown in the second OCR pass.
+
+**Page concurrency**:
+The most of a PDF's pages that are in the models at once. Both passes for one page run
+together, so it is also a ceiling on the model requests OCR has outstanding.
+_Avoid_: batch size, OCR parallelism

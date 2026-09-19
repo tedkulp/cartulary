@@ -4,7 +4,7 @@ import json
 import threading
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from app.providers import Message, ModelError
 
@@ -113,3 +113,36 @@ class RecordedRequest:
     path: str
     headers: Dict[str, str]  # Names lower-cased
     body: Dict[str, Any]
+
+
+class ConcurrentChatModel:
+    """Thread-safe chat model whose reply is computed from the messages it receives.
+
+    Records every call and the peak number of calls in flight at once, so a test can
+    assert both what the model saw and how much of it ran in parallel. The reply
+    callable runs outside the lock, so it may block to hold a call open.
+    """
+
+    def __init__(self, reply: Callable[[Sequence[Message]], str]) -> None:
+        self._reply = reply
+        self._lock = threading.Lock()
+        self.calls: List[List[Message]] = []
+        self.running = 0
+        self.peak_running = 0
+
+    def chat(
+        self,
+        messages: Sequence[Message],
+        *,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        with self._lock:
+            self.calls.append(list(messages))
+            self.running += 1
+            self.peak_running = max(self.peak_running, self.running)
+        try:
+            return self._reply(messages)
+        finally:
+            with self._lock:
+                self.running -= 1

@@ -64,7 +64,9 @@ def process_document(self, document_id: str, force_ocr: bool = False) -> dict:
 
         # Initialize OCR service
         ocr_service = OCRService(
-            vision_model=get_vision_model(), formatter_model=get_formatter_model()
+            vision_model=get_vision_model(),
+            formatter_model=get_formatter_model(),
+            page_concurrency=settings.OCR_PAGE_CONCURRENCY,
         )
 
         # Extract text
