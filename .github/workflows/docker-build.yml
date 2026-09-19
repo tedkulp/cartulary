@@ -203,9 +203,50 @@ jobs:
           docker run --rm --entrypoint python ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-backend:sha-${{ github.sha }} --version
 
       - name: Test web image
+        id: test-web
         run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
-          docker run -d --name test-web ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
-          sleep 5
-          docker inspect test-web --format='{{.State.Status}}'
-          docker stop test-web
+          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-web:sha-${{ github.sha }}
+          docker pull "$IMAGE"
+          # nginx resolves the `backend` upstream at startup and refuses to start
+          # when the name doesn't resolve ("host not found in upstream"), and there
+          # is no backend on a bare runner. Stub the name here rather than giving
+          # nginx.conf a runtime resolver: that would hardcode a DNS address into
+          # the shipped image, and every real deployment runs web alongside a
+          # backend on one network. Only `/` is exercised, so the stub is never hit.
+          docker run -d --name test-web --add-host backend:127.0.0.1 -p 8080:80 "$IMAGE"
+
+          served=""
+          for _ in $(seq 30); do
+            status=$(docker inspect test-web --format='{{.State.Status}}' 2>/dev/null) || status=missing
+            status=${status:-missing}
+            case "$status" in
+              running|created) ;;
+              *)
+                echo "::error::web container is $status, expected running"
+                exit 1
+                ;;
+            esac
+            if curl -fsS --max-time 2 -o "$RUNNER_TEMP/index.html" http://localhost:8080/; then
+              served=yes
+              break
+            fi
+            sleep 1
+          done
+
+          if [ -z "$served" ]; then
+            echo "::error::no response from http://localhost:8080/ after 30 attempts"
+            exit 1
+          fi
+          if ! grep -q 'id="root"' "$RUNNER_TEMP/index.html"; then
+            echo "::error::http://localhost:8080/ did not serve the web app's index.html"
+            exit 1
+          fi
+          echo "web image serves index.html"
+
+      - name: Web container logs
+        if: always() && steps.test-web.outcome != 'success'
+        run: docker logs test-web || true
+
+      - name: Remove web test container
+        if: always()
+        run: docker rm -f test-web
