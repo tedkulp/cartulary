@@ -21,9 +21,16 @@ def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
     """Get chat service with dependencies."""
     assistant_model = get_assistant_model()
     if assistant_model is None:
+        # 503, not 400: the request is fine, the server has the capability turned
+        # off. Chat shares LLM_ENABLED with metadata extraction, so an upgrader
+        # who ran chat with the flag off needs to be told to set it.
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Chat is disabled in configuration (LLM_ENABLED is false).",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Chat needs an assistant model, and none is configured. "
+                "Set LLM_ENABLED=true, along with LLM_PROVIDER, LLM_MODEL and the "
+                "matching API key, then restart the backend."
+            ),
         )
 
     return ChatService(
@@ -33,7 +40,13 @@ def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
     )
 
 
-@router.post("/", response_model=ChatResponse)
+@router.post(
+    "/",
+    response_model=ChatResponse,
+    responses={
+        503: {"description": "No assistant model is configured (LLM_ENABLED is false)."}
+    },
+)
 async def chat(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),

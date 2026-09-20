@@ -105,6 +105,7 @@ EMBEDDING_DIMENSION=768
 OCR_ENABLED=true
 VISION_OCR_MODEL=minicpm-v
 
+# Metadata extraction and chat both need this; false makes the chat API return 503
 LLM_ENABLED=false
 
 # OIDC (optional)

@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None  # Required if EMBEDDING_PROVIDER=openai
 
     # LLM (Phase 4 - Optional)
-    LLM_ENABLED: bool = False
+    LLM_ENABLED: bool = False  # Assistant model: metadata extraction and chat (chat 503s if false)
     LLM_PROVIDER: str = "openai"  # openai, gemini, ollama
     LLM_MODEL: str = "gpt-4o-mini"  # gpt-4o-mini, gemini-pro, llama2
     LLM_BASE_URL: Optional[str] = None  # For Ollama (default: http://localhost:11434)

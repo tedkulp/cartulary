@@ -278,7 +278,9 @@ See [.env.example](.env.example) and [apps/backend/.env.example](apps/backend/.e
 - `EMBEDDING_DIMENSION`: Vector dimension (768 for nomic-embed-text, 384 for local, 1536 for OpenAI)
 
 #### LLM Integration
-- `LLM_ENABLED`: Enable optional LLM metadata extraction
+- `LLM_ENABLED`: Enable the assistant model, used for **both** metadata extraction and
+  RAG chat. When false, metadata extraction is skipped and `POST /api/v1/chat/` returns
+  503. Chat requires `LLM_ENABLED=true`, which earlier versions did not.
 - `LLM_PROVIDER`: `ollama`, `openai`, or `gemini`
 - `LLM_MODEL`: Model name (e.g., `llama2`, `gpt-4`, `gemini-pro`)
 - `LLM_BASE_URL`: Base URL for Ollama (default: `http://localhost:11434`)
