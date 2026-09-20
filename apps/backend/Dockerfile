@@ -13,16 +13,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# The base image pins pip 24.0 and setuptools 79.0.1, both of which carry
-# reported vulnerabilities, and a fresh venv inherits them. Upgrade before
-# installing anything: setuptools also vendors wheel and jaraco.context, so
-# these three cover the whole packaging toolchain.
+# The base image pins pip 24.0, which a fresh venv inherits. Upgrade it and the
+# tools it builds sdists with, so anything compiled below is built by a current
+# toolchain that understands current wheel tags.
 RUN pip install --upgrade pip setuptools wheel
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
+
+# Nothing past this point installs a package, so the toolchain is dead weight
+# in the shipped image — and not inert weight: pip vendors its own
+# dependencies (msgpack, a pkg_resources copy) and lists them in an SBOM that
+# scanners read, so each upgrade trades one set of reported vulnerabilities for
+# whatever the new pip happens to vendor. Removing it ends that entirely.
+RUN pip uninstall -y pip setuptools wheel
 
 
 FROM python:3.11-slim
@@ -35,10 +41,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# The runtime stage carries its own copy of the packaging toolchain in the
-# system site-packages, at the same vulnerable versions. Nothing here installs
-# packages, but the scanner still sees them, so upgrade these too.
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+# The base image keeps a second copy of the toolchain in the system
+# site-packages, beside the venv's. Drop it for the same reason. Plain `pip`
+# still resolves to that copy here: PATH picks up the venv below this line.
+RUN python -m pip uninstall -y pip setuptools wheel
 
 # Take the dependencies built above. Same base image, so the virtualenv's links
 # back to the interpreter resolve unchanged.
