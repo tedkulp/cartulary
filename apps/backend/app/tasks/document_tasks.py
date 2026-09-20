@@ -544,6 +544,10 @@ def extract_metadata(self, document_id: str):
         owner_row = owner_result.fetchone()
         owner_id = str(owner_row[0]) if owner_row else None
 
+        # Counted as they land, not from the suggestions: a tag can be skipped for
+        # being empty after cleaning, or rolled back below.
+        tags_added = 0
+
         if owner_id:
             if suggested_tags:
                 # Replace existing tags entirely — remove all current associations first
@@ -593,6 +597,7 @@ def extract_metadata(self, document_id: str):
                             {"doc_id": document_id, "tag_id": tag_id}
                         )
                         db.commit()
+                        tags_added += 1
                         logger.info(f"Added tag '{tag_name}' to document")
 
                     except Exception as tag_error:
@@ -607,7 +612,7 @@ def extract_metadata(self, document_id: str):
             "status": "success",
             "document_id": document_id,
             "metadata": metadata,
-            "tags_added": len(suggested_tags),
+            "tags_added": tags_added,
         }
 
     except Exception as e:

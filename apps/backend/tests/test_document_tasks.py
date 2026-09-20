@@ -164,12 +164,12 @@ def metadata_task(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeSession]:
 class TestExtractMetadataTags:
     """The LLM replacing a document's tags must not mean it can empty them."""
 
-    def _run(self, metadata: Dict[str, Any]) -> None:
+    def _run(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         with patch(
             "app.services.assistant_service.AssistantService.extract_metadata",
             return_value=metadata,
         ):
-            document_tasks.extract_metadata.run(DOC_ID)
+            return document_tasks.extract_metadata.run(DOC_ID)
 
     def test_keeps_existing_tags_when_the_llm_suggests_none(
         self, metadata_task: FakeSession
@@ -195,3 +195,18 @@ class TestExtractMetadataTags:
 
         assert metadata_task.deletes_document_tags()
         assert any("INSERT INTO document_tags" in sql for sql in metadata_task.statements)
+
+    def test_counts_the_tags_that_landed_not_the_ones_suggested(
+        self, metadata_task: FakeSession
+    ) -> None:
+        """A suggestion that cleans away to nothing was never added."""
+        result = self._run({"title": "Invoice", "suggested_tags": ["receipt", "   "]})
+
+        assert result["tags_added"] == 1
+
+    def test_counts_no_tags_when_the_llm_suggests_none(
+        self, metadata_task: FakeSession
+    ) -> None:
+        result = self._run({"title": "Invoice", "suggested_tags": []})
+
+        assert result["tags_added"] == 0
