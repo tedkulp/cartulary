@@ -1,10 +1,10 @@
 """Chat service for RAG-based document Q&A."""
 import logging
 from typing import List, Optional
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.models.user import User
 from app.schemas.chat import ChatMessage, ChatResponse, DocumentSource
 from app.services.vector_search_service import VectorSearchService
 from app.services.assistant_service import AssistantService
@@ -36,7 +36,7 @@ class ChatService:
     def chat(
         self,
         question: str,
-        user_id: UUID,
+        user: User,
         conversation_history: Optional[List[ChatMessage]] = None,
         num_chunks: int = 5,
         similarity_threshold: float = 0.5,
@@ -46,7 +46,7 @@ class ChatService:
 
         Args:
             question: User's question
-            user_id: User ID for filtering documents
+            user: User the retrieved documents must be accessible to
             conversation_history: Optional previous conversation messages
             num_chunks: Number of document chunks to retrieve
             similarity_threshold: Minimum similarity score for retrieval
@@ -54,7 +54,7 @@ class ChatService:
         Returns:
             ChatResponse with answer, sources, and chunks used
         """
-        logger.info(f"Processing chat question for user {user_id}: {question[:100]}...")
+        logger.info(f"Processing chat question for user {user.id}: {question[:100]}...")
 
         # Step 1: Rewrite follow-up questions into standalone search queries
         history_dicts = None
@@ -70,7 +70,7 @@ class ChatService:
         try:
             search_results = self.vector_search_service.vector_search(
                 query=search_query,
-                user_id=user_id,
+                user=user,
                 limit=num_chunks,
                 similarity_threshold=similarity_threshold,
             )

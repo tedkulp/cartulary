@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.core.permissions import PermissionLevel, require_document_access
 from app.dependencies import get_current_user, get_db
 from app.models.document import Document
 from app.models.tag import Tag
@@ -160,23 +161,17 @@ async def add_tags_to_document(
     document_id: UUID,
     tag_request: DocumentTagRequest,
     current_user: User = Depends(get_current_user),
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
     db: Session = Depends(get_db),
 ) -> dict:
     """
     Add tags to a document.
 
+    Tagging edits the document, so a write share is enough: it does not require
+    ownership.
+
     - **tag_ids**: List of tag IDs to add
     """
-    # Get document
-    document = (
-        db.query(Document)
-        .filter(Document.id == document_id, Document.owner_id == current_user.id)
-        .first()
-    )
-
-    if not document:
-        raise NotFoundError("Document not found")
-
     # Get tags
     tags = db.query(Tag).filter(Tag.id.in_(tag_request.tag_ids)).all()
 
@@ -218,21 +213,15 @@ async def remove_tag_from_document(
     document_id: UUID,
     tag_id: UUID,
     current_user: User = Depends(get_current_user),
+    document: Document = Depends(require_document_access(PermissionLevel.WRITE)),
     db: Session = Depends(get_db),
 ):
     """
     Remove a tag from a document.
+
+    Untagging edits the document, so a write share is enough: it does not require
+    ownership.
     """
-    # Get document
-    document = (
-        db.query(Document)
-        .filter(Document.id == document_id, Document.owner_id == current_user.id)
-        .first()
-    )
-
-    if not document:
-        raise NotFoundError("Document not found")
-
     # Get tag
     tag = db.query(Tag).filter(Tag.id == tag_id).first()
 

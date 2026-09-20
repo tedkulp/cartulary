@@ -42,7 +42,7 @@ def _process_file(file_path: Path, source: ImportSource, db) -> bool:
     # Deduplication check
     existing = db.query(Document).filter(
         Document.checksum == checksum,
-        Document.owner_id == source.owner_id
+        Document.owner_id == source.owner_id,  # not an access check: deduplication
     ).first()
 
     if existing:

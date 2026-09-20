@@ -36,6 +36,24 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+
+    # The access-control tests ask a real database which rows come back; a mocked
+    # session cannot answer that. See ADR 0005.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: cartulary
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: cartulary_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -54,6 +72,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://cartulary:test@localhost:5432/cartulary_test
+          SECRET_KEY: test-secret-key
         run: |
           cd apps/backend
           if [ -d "tests" ]; then

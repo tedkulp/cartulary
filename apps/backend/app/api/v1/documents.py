@@ -5,7 +5,7 @@ from typing import List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.capabilities import (
     CAPABILITY_DISABLED_RESPONSE,
@@ -16,9 +16,8 @@ from app.core.capabilities import (
 from app.core.exceptions import DuplicateError, NotFoundError
 from app.core.permissions import (
     PermissionLevel,
+    accessible_documents,
     require_document_access,
-    get_permission_service,
-    PermissionService,
     SystemPermissions,
     require_permission
 )
@@ -119,7 +118,6 @@ def list_documents(
     sort_by: str = "created_at",
     sort_order: str = "desc",
     current_user: User = Depends(get_current_user),
-    permission_service: PermissionService = Depends(get_permission_service),
     db: Session = Depends(get_db)
 ) -> List[DocumentResponse]:
     """
@@ -151,8 +149,12 @@ def list_documents(
 
     sort_field = allowed_sort_fields.get(sort_by, Document.created_at)
 
-    # Use permission service to get accessible documents
-    query = permission_service.get_accessible_documents_query(current_user)
+    # The same filter every other read path uses. See ADR 0004.
+    query = (
+        db.query(Document)
+        .options(selectinload(Document.tags))
+        .filter(accessible_documents(current_user))
+    )
 
     # Apply sorting
     if sort_order.lower() == 'asc':

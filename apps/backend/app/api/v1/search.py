@@ -59,7 +59,7 @@ async def search_documents(
     - **limit**: Maximum number of results
     """
     return search_service.search_documents(
-        query=q, user_id=current_user.id, skip=skip, limit=limit
+        query=q, user=current_user, skip=skip, limit=limit
     )
 
 
@@ -74,7 +74,7 @@ async def count_search_results(
 
     - **q**: Search query string
     """
-    count = search_service.count_search_results(query=q, user_id=current_user.id)
+    count = search_service.count_search_results(query=q, user=current_user)
     return {"query": q, "count": count}
 
 
@@ -115,7 +115,7 @@ async def advanced_search(
     if mode == SearchMode.SEMANTIC:
         # Pure semantic search
         results = vector_search_service.vector_search(
-            q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
+            q, current_user, limit=limit, similarity_threshold=similarity_threshold
         )
         # results is List[Tuple[Document, float, str]]
         for doc, score, chunk_text in results:
@@ -138,7 +138,7 @@ async def advanced_search(
     elif mode == SearchMode.HYBRID:
         # Hybrid search with RRF
         results = vector_search_service.hybrid_search(
-            q, current_user.id, limit=limit, similarity_threshold=similarity_threshold
+            q, current_user, limit=limit, similarity_threshold=similarity_threshold
         )
         # results is List[Tuple[Document, float, Optional[str]]]
         for doc, score, chunk_text in results:
@@ -166,7 +166,7 @@ async def advanced_search(
 
     else:
         # Full-text search (default)
-        docs = search_service.search_documents(q, current_user.id, skip=0, limit=limit)
+        docs = search_service.search_documents(q, current_user, skip=0, limit=limit)
         for doc in docs:
             highlights = []
             # Extract snippets from OCR text

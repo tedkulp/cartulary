@@ -4,9 +4,11 @@ from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.core.permissions import accessible_documents
 from app.models.document import Document
+from app.models.user import User
 from app.schemas.document import DocumentResponse
 
 logger = logging.getLogger(__name__)
@@ -104,88 +106,79 @@ class SearchService:
         
         return result
 
+    def _matches_query(self, query: str):
+        """
+        Whether a Document's text fields contain the query.
+
+        Args:
+            query: Search query string (already known to be non-blank)
+
+        Returns:
+            A boolean expression over the `documents` table
+        """
+        # Use PostgreSQL ILIKE for case-insensitive search
+        # In production, you'd want to use ts_vector for better performance
+        search_term = f"%{query}%"
+
+        return or_(
+            Document.title.ilike(search_term),
+            Document.original_filename.ilike(search_term),
+            Document.ocr_text.ilike(search_term),
+            Document.extracted_title.ilike(search_term),
+            Document.extracted_correspondent.ilike(search_term),
+        )
+
     def search_documents(
         self,
         query: str,
-        user_id: UUID,
+        user: User,
         skip: int = 0,
         limit: int = 50,
     ) -> List[DocumentResponse]:
         """
         Search documents using full-text search on title and OCR text.
 
+        Searches every Document accessible to the user, which includes documents
+        shared with them and public documents, not only the ones they own.
+
         Args:
             query: Search query string
-            user_id: User ID (for permission filtering)
+            user: User the results must be accessible to
             skip: Number of records to skip (pagination)
             limit: Maximum number of records to return
 
         Returns:
             List of matching documents
         """
-        if not query or not query.strip():
-            # Return all documents if no query
-            documents = (
-                self.db.query(Document)
-                .filter(Document.owner_id == user_id)
-                .order_by(Document.created_at.desc())
-                .offset(skip)
-                .limit(limit)
-                .all()
-            )
-            return [DocumentResponse.model_validate(doc) for doc in documents]
+        documents = self.db.query(Document).options(selectinload(Document.tags)).filter(
+            accessible_documents(user)
+        )
 
-        # Use PostgreSQL ILIKE for case-insensitive search
-        # In production, you'd want to use ts_vector for better performance
-        search_term = f"%{query}%"
+        if query and query.strip():
+            documents = documents.filter(self._matches_query(query))
 
         documents = (
-            self.db.query(Document)
-            .filter(
-                Document.owner_id == user_id,
-                or_(
-                    Document.title.ilike(search_term),
-                    Document.original_filename.ilike(search_term),
-                    Document.ocr_text.ilike(search_term),
-                    Document.extracted_title.ilike(search_term),
-                    Document.extracted_correspondent.ilike(search_term),
-                ),
-            )
-            .order_by(Document.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-            .all()
+            documents.order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
         )
 
         return [DocumentResponse.model_validate(doc) for doc in documents]
 
-    def count_search_results(self, query: str, user_id: UUID) -> int:
+    def count_search_results(self, query: str, user: User) -> int:
         """
         Count total number of search results.
 
+        Counts the same set `search_documents` returns, so the two never disagree.
+
         Args:
             query: Search query string
-            user_id: User ID (for permission filtering)
+            user: User the results must be accessible to
 
         Returns:
             Total count of matching documents
         """
-        if not query or not query.strip():
-            return self.db.query(Document).filter(Document.owner_id == user_id).count()
+        counted = self.db.query(func.count(Document.id)).filter(accessible_documents(user))
 
-        search_term = f"%{query}%"
+        if query and query.strip():
+            counted = counted.filter(self._matches_query(query))
 
-        return (
-            self.db.query(func.count(Document.id))
-            .filter(
-                Document.owner_id == user_id,
-                or_(
-                    Document.title.ilike(search_term),
-                    Document.original_filename.ilike(search_term),
-                    Document.ocr_text.ilike(search_term),
-                    Document.extracted_title.ilike(search_term),
-                    Document.extracted_correspondent.ilike(search_term),
-                ),
-            )
-            .scalar()
-        )
+        return counted.scalar()

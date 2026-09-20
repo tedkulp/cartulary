@@ -40,6 +40,30 @@ Where a page image's finished OCR text is remembered, so an identical page is ne
 twice by the same models. A speed-up, never a source of truth.
 _Avoid_: OCR cache, result store
 
+### Documents
+
+**Accessible document**:
+A Document a User may act on at a given permission level — because they own it, because
+it is public (read only), or because a live share grants it. Superusers reach everything.
+One expression decides this for every read of the documents table. See ADR 0004.
+_Avoid_: visible document, my documents, owned documents
+
+**Share**:
+A grant of one permission level on one Document to one other User, optionally until a
+date. Read, write and admin rank in that order: a share grants every level below its own.
+_Avoid_: permission, ACL
+
+**Live share**:
+A Share that has not expired, measured against the database clock. An expired Share
+grants nothing — it does not degrade to read. Whether a Share is live is decided in one
+place, so the documents listed as shared with you are exactly the ones you can reach.
+_Avoid_: active share, valid share
+
+**Public document**:
+A Document any User may read, whoever owns it. Public confers read and nothing more:
+editing one still needs ownership or a write share.
+_Avoid_: shared with everyone, open document
+
 ### Capabilities
 
 **Capability**:

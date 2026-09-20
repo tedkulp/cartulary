@@ -212,7 +212,7 @@ class IMAPMailboxHandler:
         # Check for duplicates
         existing = self.db.query(Document).filter(
             Document.checksum == checksum,
-            Document.owner_id == self.import_source.owner_id
+            Document.owner_id == self.import_source.owner_id,  # not an access check: deduplication
         ).first()
 
         if existing:

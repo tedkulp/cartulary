@@ -71,7 +71,7 @@ async def chat(
 
         response = chat_service.chat(
             question=request.question,
-            user_id=current_user.id,
+            user=current_user,
             conversation_history=request.conversation_history,
             num_chunks=request.num_chunks,
         )

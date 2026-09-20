@@ -2,9 +2,10 @@
 import logging
 from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
 
 from fastapi import Depends, HTTPException, status
+from sqlalchemy import func, or_, select, true
+from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -21,6 +22,94 @@ class PermissionLevel:
     READ = "read"
     WRITE = "write"
     ADMIN = "admin"
+
+
+# Permission levels ranked weakest to strongest: a share granting a level also
+# grants every level below it.
+_LEVEL_RANK = {
+    PermissionLevel.READ: 1,
+    PermissionLevel.WRITE: 2,
+    PermissionLevel.ADMIN: 3,
+}
+
+
+def _levels_satisfying(required_level: str) -> List[str]:
+    """Permission levels a share may grant and still satisfy `required_level`."""
+    required = _LEVEL_RANK.get(required_level, 0)
+    return [level for level, rank in _LEVEL_RANK.items() if rank >= required]
+
+
+def share_is_live() -> ColumnElement[bool]:
+    """
+    Whether a Share has not expired.
+
+    The one place expiry is decided. Measured against the database clock, so
+    every app container agrees on when a share ends; `expires_at` is a naive
+    timestamp, so `now()` is converted to UTC before the comparison.
+
+    Returns:
+        A boolean expression over `document_shares`
+    """
+    return or_(
+        DocumentShare.expires_at.is_(None),
+        DocumentShare.expires_at > func.timezone("UTC", func.now()),
+    )
+
+
+def live_share(user: User, required_level: str = PermissionLevel.READ) -> ColumnElement[bool]:
+    """
+    Whether a live share grants `user` this level on the Document in the enclosing query.
+
+    Args:
+        user: User the share must be with
+        required_level: Level the share must grant (read, write, admin)
+
+    Returns:
+        A correlated EXISTS expression over `document_shares`
+    """
+    return (
+        select(DocumentShare.id)
+        .where(
+            DocumentShare.document_id == Document.id,
+            DocumentShare.shared_with_user_id == user.id,
+            DocumentShare.permission_level.in_(_levels_satisfying(required_level)),
+            share_is_live(),
+        )
+        .correlate(Document)
+        .exists()
+    )
+
+
+def accessible_documents(
+    user: User, required_level: str = PermissionLevel.READ
+) -> ColumnElement[bool]:
+    """
+    The one filter every read of the `documents` table goes through.
+
+    A Document is accessible to a User when they own it, when it is public (read
+    only), or when a live share grants them the level asked for. Superusers reach
+    everything. `Document.owner_id` is compared here and nowhere else in `app/` —
+    `tests/test_access_filter_is_the_only_rule.py` enforces that. See ADR 0004.
+
+    Args:
+        user: User the documents must be accessible to
+        required_level: Level the user needs (read, write, admin)
+
+    Returns:
+        A boolean expression to hand to `.filter()` / `.where()`
+    """
+    if user.is_superuser:
+        return true()
+
+    clauses = [Document.owner_id == user.id]
+
+    # Public documents are readable by anyone, but confer no write or admin.
+    if required_level == PermissionLevel.READ:
+        clauses.append(Document.is_public.is_(True))
+
+    clauses.append(live_share(user, required_level))
+
+    return or_(*clauses)
 
 
 class SystemPermissions:
@@ -129,6 +218,10 @@ class PermissionService:
         """
         Check if user can access a document with the required permission level.
 
+        Asks the database the same question `accessible_documents()` asks, so a
+        single document and a list of documents can never disagree about who may
+        see what. See ADR 0004.
+
         Args:
             user: User to check
             document: Document to check access for
@@ -137,37 +230,16 @@ class PermissionService:
         Returns:
             True if user has access, False otherwise
         """
-        # Superusers have all access
-        if user.is_superuser:
-            return True
-
-        # Owner has all access
-        if document.owner_id == user.id:
-            return True
-
-        # Check if document is public (read-only)
-        if document.is_public and required_level == PermissionLevel.READ:
-            return True
-
-        # Check document shares
-        share = (
-            self.db.query(DocumentShare)
+        found = (
+            self.db.query(Document.id)
             .filter(
-                DocumentShare.document_id == document.id,
-                DocumentShare.shared_with_user_id == user.id
+                Document.id == document.id,
+                accessible_documents(user, required_level),
             )
             .first()
         )
 
-        if share:
-            # Check if share has expired
-            if share.expires_at and share.expires_at < datetime.utcnow():
-                return False
-
-            # Check permission level hierarchy
-            return self._check_permission_level(share.permission_level, required_level)
-
-        return False
+        return found is not None
 
     def _check_permission_level(self, granted_level: str, required_level: str) -> bool:
         """
@@ -182,47 +254,7 @@ class PermissionService:
         Returns:
             True if granted level satisfies required level
         """
-        hierarchy = {
-            PermissionLevel.READ: 1,
-            PermissionLevel.WRITE: 2,
-            PermissionLevel.ADMIN: 3
-        }
-
-        return hierarchy.get(granted_level, 0) >= hierarchy.get(required_level, 0)
-
-    def get_accessible_documents_query(self, user: User):
-        """
-        Get SQLAlchemy query for documents user can access.
-
-        Args:
-            user: User to get documents for
-
-        Returns:
-            SQLAlchemy query object
-        """
-        from sqlalchemy import or_
-        from sqlalchemy.orm import joinedload
-
-        from sqlalchemy.orm import selectinload
-
-        # Superusers see all documents
-        if user.is_superuser:
-            return self.db.query(Document).options(selectinload(Document.tags))
-
-        # Get documents where user is owner, document is public, or document is shared with user
-        return (
-            self.db.query(Document)
-            .options(selectinload(Document.tags))
-            .outerjoin(DocumentShare, Document.id == DocumentShare.document_id)
-            .filter(
-                or_(
-                    Document.owner_id == user.id,
-                    Document.is_public == True,
-                    DocumentShare.shared_with_user_id == user.id
-                )
-            )
-            .distinct()
-        )
+        return _LEVEL_RANK.get(granted_level, 0) >= _LEVEL_RANK.get(required_level, 0)
 
 
 # Dependency functions for FastAPI

@@ -3,10 +3,12 @@ import logging
 from typing import List, Tuple, Optional
 from uuid import UUID
 
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
+from app.core.permissions import accessible_documents
 from app.models.document import Document, DocumentEmbedding
+from app.models.user import User
 from app.providers import Embedder
 
 logger = logging.getLogger(__name__)
@@ -26,15 +28,40 @@ class VectorSearchService:
         self.db = db
         self.embedder = embedder
 
+    def _load_documents(self, document_ids: List[UUID]) -> dict:
+        """
+        Load Documents by id, with tags, keyed by id.
+
+        Args:
+            document_ids: Ids to load
+
+        Returns:
+            Mapping of document id to Document
+        """
+        if not document_ids:
+            return {}
+
+        documents = (
+            self.db.query(Document)
+            .options(selectinload(Document.tags))
+            .filter(Document.id.in_(document_ids))
+            .all()
+        )
+
+        return {document.id: document for document in documents}
+
     def vector_search(
-        self, query: str, user_id: UUID, limit: int = 10, similarity_threshold: float = 0.3
+        self, query: str, user: User, limit: int = 10, similarity_threshold: float = 0.3
     ) -> List[Tuple[Document, float, str]]:
         """
         Perform vector similarity search.
 
+        Searches every Document accessible to the user, which includes documents
+        shared with them and public documents, not only the ones they own.
+
         Args:
             query: Search query
-            user_id: User ID for filtering results
+            user: User the results must be accessible to
             limit: Maximum number of results
             similarity_threshold: Minimum cosine similarity score (0-1). Default 0.3 filters out irrelevant results.
                                   0.8-1.0: Very relevant, 0.6-0.8: Moderately relevant, 0.3-0.6: Somewhat relevant
@@ -51,79 +78,47 @@ class VectorSearchService:
         else:
             query_embedding = [0.0] * self.embedder.dimension
 
-        # Perform vector search using pgvector's cosine similarity operator (<=>)
-        # Note: pgvector uses distance (lower is better), so we calculate 1 - distance to get similarity
-        # Format embedding as PostgreSQL array literal
-        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+        # pgvector's <=> is a distance (lower is better), so similarity is 1 - distance.
+        similarity = (
+            1 - DocumentEmbedding.embedding.cosine_distance(query_embedding)
+        ).label("similarity")
 
-        # Build the SQL query with direct string formatting for the vector
-        # (SQLAlchemy text() doesn't handle vector type well with parameters)
-        # Inner query: DISTINCT ON picks the best chunk per document (ORDER BY d.id, similarity DESC)
-        # Outer query: sorts those best-per-document rows by similarity and applies LIMIT
-        sql = text(f"""
-            SELECT * FROM (
-                SELECT DISTINCT ON (d.id)
-                    d.id,
-                    d.title,
-                    d.description,
-                    d.original_filename,
-                    d.file_size,
-                    d.mime_type,
-                    d.checksum,
-                    d.processing_status,
-                    d.ocr_text,
-                    d.created_at,
-                    d.updated_at,
-                    d.uploaded_by,
-                    de.chunk_text,
-                    1 - (de.embedding <=> '{embedding_str}'::vector) as similarity
-                FROM documents d
-                INNER JOIN document_embeddings de ON d.id = de.document_id
-                WHERE d.owner_id = :user_id
-                AND 1 - (de.embedding <=> '{embedding_str}'::vector) >= :threshold
-                ORDER BY d.id, similarity DESC
-            ) best_chunks
-            ORDER BY similarity DESC
-            LIMIT :limit
-        """)
-
-        result = self.db.execute(
-            sql,
-            {
-                "user_id": str(user_id),
-                "threshold": similarity_threshold,
-                "limit": limit,
-            },
+        # DISTINCT ON picks the best-scoring chunk per document; the outer select
+        # then ranks those best-per-document rows and applies the limit.
+        best_chunks = (
+            select(
+                Document.id.label("document_id"),
+                DocumentEmbedding.chunk_text.label("chunk_text"),
+                similarity,
+            )
+            .join(DocumentEmbedding, DocumentEmbedding.document_id == Document.id)
+            .where(
+                accessible_documents(user),
+                similarity >= similarity_threshold,
+            )
+            .distinct(Document.id)
+            .order_by(Document.id, similarity.desc())
+            .subquery()
         )
 
-        # Convert results to Document objects with scores and chunk_text
-        results = []
-        for row in result:
-            # Create Document object from row
-            doc = Document(
-                id=row.id,
-                title=row.title,
-                description=row.description,
-                original_filename=row.original_filename,
-                file_size=row.file_size,
-                mime_type=row.mime_type,
-                checksum=row.checksum,
-                processing_status=row.processing_status,
-                ocr_text=row.ocr_text,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-                uploaded_by=row.uploaded_by,
-            )
-            similarity = float(row.similarity)
-            chunk_text = row.chunk_text or ""
-            results.append((doc, similarity, chunk_text))
+        rows = self.db.execute(
+            select(best_chunks).order_by(best_chunks.c.similarity.desc()).limit(limit)
+        ).all()
 
-        return results
+        # Real Document entities, not column copies: a semantic hit carries
+        # everything a listed document carries, tags and ownership included.
+        documents = self._load_documents([row.document_id for row in rows])
+
+        return [
+            (documents[row.document_id], float(row.similarity), row.chunk_text or "")
+            for row in rows
+            if row.document_id in documents
+        ]
 
     def hybrid_search(
         self,
         query: str,
-        user_id: UUID,
+        user: User,
         limit: int = 10,
         fts_weight: float = 0.5,
         vector_weight: float = 0.5,
@@ -137,9 +132,12 @@ class VectorSearchService:
         RRF score for document d = sum(1 / (k + rank_i)) for all methods i
         where k is a constant (typically 60) and rank_i is the rank in method i.
 
+        Both halves already filter to what the user may read, so the fused result
+        needs no access check of its own.
+
         Args:
             query: Search query
-            user_id: User ID for filtering results
+            user: User the results must be accessible to
             limit: Maximum number of results
             fts_weight: Weight for full-text search results (0-1)
             vector_weight: Weight for vector search results (0-1)
@@ -153,8 +151,8 @@ class VectorSearchService:
 
         # Perform both searches
         search_service = SearchService(self.db)
-        fts_results = search_service.search_documents(query, user_id, skip=0, limit=limit * 2)
-        vector_results = self.vector_search(query, user_id, limit=limit * 2, similarity_threshold=similarity_threshold)
+        fts_results = search_service.search_documents(query, user, skip=0, limit=limit * 2)
+        vector_results = self.vector_search(query, user, limit=limit * 2, similarity_threshold=similarity_threshold)
 
         # Apply Reciprocal Rank Fusion
         k = 60  # RRF constant
@@ -176,26 +174,17 @@ class VectorSearchService:
             if doc_id not in doc_chunks:
                 doc_chunks[doc_id] = chunk_text
 
-        # Sort by RRF score and fetch full document objects
-        sorted_doc_ids = sorted(doc_scores.keys(), key=lambda x: doc_scores[x], reverse=True)
-        results = []
+        # Sort by RRF score, dropping anything too weak to be worth showing
+        ranked_ids = [
+            doc_id
+            for doc_id in sorted(doc_scores, key=lambda doc_id: doc_scores[doc_id], reverse=True)
+            if doc_scores[doc_id] >= min_rrf_score
+        ][:limit]
 
-        for doc_id in sorted_doc_ids:
-            # Filter by minimum RRF score to remove irrelevant results
-            if doc_scores[doc_id] < min_rrf_score:
-                continue
-                
-            doc = (
-                self.db.query(Document)
-                .filter(Document.id == doc_id, Document.owner_id == user_id)
-                .first()
-            )
-            if doc:
-                chunk_text = doc_chunks.get(doc_id)
-                results.append((doc, doc_scores[doc_id], chunk_text))
-                
-            # Stop once we have enough results
-            if len(results) >= limit:
-                break
+        documents = self._load_documents(ranked_ids)
 
-        return results
+        return [
+            (documents[doc_id], doc_scores[doc_id], doc_chunks.get(doc_id))
+            for doc_id in ranked_ids
+            if doc_id in documents
+        ]

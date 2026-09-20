@@ -1,16 +1,16 @@
 """Document sharing API endpoints."""
-from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.permissions import (
     PermissionLevel,
     get_permission_service,
     PermissionService,
-    require_document_access
+    require_document_access,
+    share_is_live
 )
 from app.dependencies import get_current_user
 from app.database import get_db
@@ -221,37 +221,28 @@ async def list_shared_documents(
 
     Returns documents with share information.
     """
-    from sqlalchemy import and_
-
-    # Get shares for current user that haven't expired
+    # Live shares only, using the one expression that decides expiry. See ADR 0004.
     shares = (
         db.query(DocumentShare)
         .filter(
-            and_(
-                DocumentShare.shared_with_user_id == current_user.id,
-                or_(
-                    DocumentShare.expires_at.is_(None),
-                    DocumentShare.expires_at > datetime.utcnow()
-                )
-            )
+            DocumentShare.shared_with_user_id == current_user.id,
+            share_is_live(),
         )
         .offset(skip)
         .limit(limit)
         .all()
     )
 
-    # Build response with document and share info
-    result = []
-    for share in shares:
-        document = db.query(Document).filter(Document.id == share.document_id).first()
-        if document:
-            result.append({
-                "document": document,
-                "share": share
-            })
+    documents = {
+        document.id: document
+        for document in db.query(Document)
+        .options(selectinload(Document.tags))
+        .filter(Document.id.in_([share.document_id for share in shares]))
+        .all()
+    }
 
-    return result
-
-
-# Import or_ for expired share filtering
-from sqlalchemy import or_
+    return [
+        {"document": documents[share.document_id], "share": share}
+        for share in shares
+        if share.document_id in documents
+    ]

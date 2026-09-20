@@ -412,6 +412,30 @@ its builder in `app/providers/factory.py` returns a model rather than `None`.
 
 See ADR 0003.
 
+## Document access
+
+"Which Documents can this user see" is answered once, by `accessible_documents(user, level)`
+in `app/core/permissions.py`. It is a boolean SQLAlchemy expression, so every read path —
+the document list, full-text search and its count, semantic search, hybrid search, RAG
+chat — passes it to `.filter()`. A Document is accessible when the user owns it, when it is
+public (read only), or when a **live share** (one that has not expired, measured against the
+database clock) grants the level asked for. Superusers reach everything.
+
+**Never filter on `Document.owner_id` in a new read path, and never compare `DocumentShare.expires_at`
+yourself** — expiry is `share_is_live()`, which `accessible_documents` and `GET /shared-with-me`
+both call. `tests/test_access_filter_is_the_only_rule.py` fails if you do either. A line that is
+not an access check — per-owner deduplication on upload and import — opts out with a trailing
+`# not an access check: <why>` comment.
+
+Because the expression needs `is_superuser`, services take a `User`, not a `user_id`.
+Single-document checks go through `require_document_access(level)`, which asks
+`can_access_document`, which asks the same expression — so a list and a document detail can
+never disagree. Semantic search is ORM, not raw SQL, for this reason; see ADR 0004.
+
+Access rules are tested against a real PostgreSQL via the `db_session` fixture, because a
+mocked Session cannot say which rows a query returns. `just test-backend` therefore needs the
+Postgres that compose publishes on localhost. See ADR 0005.
+
 ## Testing Strategy
 
 ### Backend Tests
