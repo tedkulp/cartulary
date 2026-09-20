@@ -13,6 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# The base image pins pip 24.0 and setuptools 79.0.1, both of which carry
+# reported vulnerabilities, and a fresh venv inherits them. Upgrade before
+# installing anything: setuptools also vendors wheel and jaraco.context, so
+# these three cover the whole packaging toolchain.
+RUN pip install --upgrade pip setuptools wheel
+
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -28,6 +34,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# The runtime stage carries its own copy of the packaging toolchain in the
+# system site-packages, at the same vulnerable versions. Nothing here installs
+# packages, but the scanner still sees them, so upgrade these too.
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
 # Take the dependencies built above. Same base image, so the virtualenv's links
 # back to the interpreter resolve unchanged.
