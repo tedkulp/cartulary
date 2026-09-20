@@ -401,7 +401,7 @@ The OCR system automatically optimizes processing for reliability and memory eff
 
 ## Documentation
 
-- [Development Guide (CLAUDE.md)](CLAUDE.md) - Comprehensive guide for development
+- [Agent & Development Guide (AGENTS.md)](AGENTS.md) - Conventions, architecture notes and workflow
 - [Architecture (ARCHITECTURE.md)](ARCHITECTURE.md) - System architecture overview
 - [Docker Guide (DOCKER.md)](DOCKER.md) - Docker development and deployment
 - [Mobile App (apps/mobile/README.md)](apps/mobile/README.md) - Mobile app documentation
@@ -409,7 +409,7 @@ The OCR system automatically optimizes processing for reliability and memory eff
 
 ## Contributing
 
-1. Review [CLAUDE.md](CLAUDE.md) for coding conventions and best practices
+1. Review [AGENTS.md](AGENTS.md) for coding conventions and best practices
 2. Create a feature branch
 3. Make your changes
 4. Write/update tests
