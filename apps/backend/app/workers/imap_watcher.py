@@ -2,22 +2,17 @@
 import logging
 import time
 import email
-import hashlib
 from datetime import datetime
-from pathlib import Path
 from typing import List, Optional, Tuple
 from email.message import Message
 from email.header import decode_header
 import imaplib
-import uuid
-
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import DuplicateError
 from app.database import SessionLocal
 from app.models.import_source import ImportSource, ImportSourceType, ImportSourceStatus
-from app.models.document import Document
-from app.tasks.document_tasks import process_document
-from app.services.storage_service import StorageService
+from app.services.document_intake import ALLOWED_EXTENSIONS, DocumentIntakeService
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +20,12 @@ logger = logging.getLogger(__name__)
 class IMAPMailboxHandler:
     """Handler for IMAP mailbox monitoring."""
 
-    def __init__(self, import_source: ImportSource, db: Session):
+    def __init__(
+        self,
+        import_source: ImportSource,
+        db: Session,
+        intake_service: Optional[DocumentIntakeService] = None,
+    ) -> None:
         """Initialize the handler.
 
         Args:
@@ -34,7 +34,7 @@ class IMAPMailboxHandler:
         """
         self.import_source = import_source
         self.db = db
-        self.storage = StorageService()
+        self.intake_service = intake_service or DocumentIntakeService(db)
         self.mail: Optional[imaplib.IMAP4_SSL] = None
 
     def connect(self) -> bool:
@@ -110,18 +110,16 @@ class IMAPMailboxHandler:
 
         return ' '.join(result)
 
-    def extract_attachments(self, msg: Message) -> List[Tuple[str, bytes, str]]:
+    def extract_attachments(self, msg: Message) -> List[Tuple[str, bytes]]:
         """Extract attachments from email message.
 
         Args:
             msg: Email message
 
         Returns:
-            List of tuples (filename, content, mime_type)
+            List of filename and content pairs.
         """
         attachments = []
-        allowed_extensions = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp'}
-
         for part in msg.walk():
             # Skip non-attachment parts
             if part.get_content_maintype() == 'multipart':
@@ -136,7 +134,7 @@ class IMAPMailboxHandler:
             filename = self.decode_header_value(filename)
 
             # Check if file extension is allowed
-            if not any(filename.lower().endswith(ext) for ext in allowed_extensions):
+            if not any(filename.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
                 logger.debug(f"Skipping non-document attachment: {filename}")
                 continue
 
@@ -145,11 +143,8 @@ class IMAPMailboxHandler:
             if not content:
                 continue
 
-            # Get mime type
-            mime_type = part.get_content_type()
-
-            attachments.append((filename, content, mime_type))
-            logger.info(f"Extracted attachment: {filename} ({mime_type})")
+            attachments.append((filename, content))
+            logger.info("Extracted attachment: %s", filename)
 
         return attachments
 
@@ -185,9 +180,9 @@ class IMAPMailboxHandler:
                 return True
 
             # Process each attachment
-            for filename, content, mime_type in attachments:
+            for filename, content in attachments:
                 try:
-                    self.import_attachment(filename, content, mime_type)
+                    self.import_attachment(filename, content)
                 except Exception as e:
                     logger.error(f"Failed to import attachment {filename}: {e}", exc_info=True)
                     # Continue with other attachments even if one fails
@@ -198,73 +193,27 @@ class IMAPMailboxHandler:
             logger.error(f"Error processing email {email_id}: {e}", exc_info=True)
             return False
 
-    def import_attachment(self, filename: str, content: bytes, mime_type: str):
+    def import_attachment(self, filename: str, content: bytes) -> None:
         """Import an attachment as a document.
 
         Args:
             filename: Original filename
             content: File content
-            mime_type: MIME type
         """
-        # Calculate checksum
-        checksum = hashlib.sha256(content).hexdigest()
-
-        # Check for duplicates
-        existing = self.db.query(Document).filter(
-            Document.checksum == checksum,
-            Document.owner_id == self.import_source.owner_id,  # not an access check: deduplication
-        ).first()
-
-        if existing:
-            logger.info(f"Duplicate document found: {filename} matches existing document {existing.id}")
+        try:
+            document = self.intake_service.intake(
+                content=content,
+                filename=filename,
+                owner_id=self.import_source.owner_id,
+            )
+        except DuplicateError as error:
+            logger.info(
+                "Duplicate Document: %s matches existing Document %s",
+                filename,
+                error.detail["document_id"],
+            )
             return
-
-        # Create document
-        document_id = uuid.uuid4()
-
-        # Save file to storage
-        doc_path = self.storage._get_document_path(document_id)
-        storage_path = doc_path / filename
-
-        with open(storage_path, 'wb') as f:
-            f.write(content)
-
-        # Convert images to PDF
-        if self.storage._is_image_file(filename):
-            logger.info(f"Image attachment detected, converting to PDF: {filename}")
-            pdf_path = self.storage._convert_image_to_pdf(storage_path)
-            final_storage_path = pdf_path
-            final_filename = pdf_path.name
-            final_mime_type = "application/pdf"
-        else:
-            final_storage_path = storage_path
-            final_filename = filename
-            final_mime_type = mime_type
-
-        # Get file size and relative path
-        file_size = final_storage_path.stat().st_size
-        relative_path = str(final_storage_path.relative_to(self.storage.base_path))
-
-        # Create document record
-        document = Document(
-            id=document_id,
-            title=filename,
-            original_filename=filename,
-            file_path=relative_path,
-            checksum=checksum,
-            file_size=file_size,
-            mime_type=final_mime_type,
-            owner_id=self.import_source.owner_id,
-            processing_status="pending"
-        )
-
-        self.db.add(document)
-        self.db.commit()
-
-        logger.info(f"Created document {document_id} from IMAP attachment {filename}")
-
-        # Queue processing task
-        process_document.delay(str(document_id))
+        logger.info("Created Document %s from IMAP attachment %s", document.id, filename)
 
     def move_processed_email(self, email_id: bytes):
         """Move email to processed folder.

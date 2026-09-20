@@ -47,3 +47,10 @@ class DuplicateError(CartularyException):
         detail: Optional[dict[str, Any]] = None
     ):
         super().__init__(message, status_code=409, detail=detail)
+
+
+class InvalidDocumentError(CartularyException):
+    """Exception raised when source bytes cannot become a Document."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, status_code=400)

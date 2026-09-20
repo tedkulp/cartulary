@@ -69,7 +69,7 @@ export function useDocumentUpload(documentService: DocumentService) {
       } catch (err: any) {
         // Check for duplicate error (409 status)
         if (err.response?.status === 409) {
-          const duplicateId = err.response?.data?.document_id
+          const duplicateId = err.response?.data?.detail?.document_id
 
           setUploads((prev) => {
             const newUploads = new Map(prev)

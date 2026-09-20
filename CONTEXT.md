@@ -42,6 +42,26 @@ _Avoid_: OCR cache, result store
 
 ### Documents
 
+**Owner**:
+The User whose archive contains a Document. Ownership identifies where the Document belongs,
+not necessarily who initiated its intake.
+_Avoid_: uploader, creator
+
+**Uploader**:
+The User who directly initiated a Document's intake. Automated directory and email imports
+have no Uploader, even though every imported Document has an Owner.
+_Avoid_: owner, creator
+
+**Document intake**:
+The act of adding a source file to an Owner's archive. Intake ends before the Document is
+read, described, made searchable, or made askable.
+_Avoid_: upload, import
+
+**Duplicate document**:
+A source file whose original bytes match a Document already in the same Owner's archive.
+The same bytes in another Owner's archive are not a duplicate.
+_Avoid_: copy, matching filename
+
 **Accessible document**:
 A Document a User may act on at a given permission level — because they own it, because
 it is public (read only), or because a live share grants it. Superusers reach everything.
