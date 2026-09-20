@@ -1,7 +1,7 @@
 """Document API endpoints."""
 import logging
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -13,7 +13,7 @@ from app.core.capabilities import (
     TURN_ON_EMBEDDER,
     capability_disabled_error,
 )
-from app.core.exceptions import DuplicateError, NotFoundError
+from app.core.exceptions import DuplicateError, InvalidDocumentError, NotFoundError
 from app.core.permissions import (
     PermissionLevel,
     accessible_documents,
@@ -27,7 +27,7 @@ from app.models.user import User
 from app.models.document import Document
 from app.providers.factory import get_assistant_model, get_embedder
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentOCRTextUpdate
-from app.services.document_service import DocumentService
+from app.services.document_intake import DocumentIntakeService
 from app.services.notification_service import notification_service
 
 logger = logging.getLogger(__name__)
@@ -35,9 +35,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
 
 
-def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
-    """Get document service instance."""
-    return DocumentService(db)
+def get_document_intake_service(
+    db: Session = Depends(get_db),
+) -> DocumentIntakeService:
+    """Get the Document intake service."""
+    return DocumentIntakeService(db)
 
 
 @router.post(
@@ -47,45 +49,34 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
     summary="Upload a new document",
     description="Upload a PDF or image file for processing"
 )
-async def upload_document(
+def upload_document(
     file: UploadFile = File(..., description="File to upload"),
-    title: str = Form(None, description="Optional document title"),
+    title: Optional[str] = Form(
+        None, max_length=500, description="Optional document title"
+    ),
     current_user: User = Depends(get_current_user),
-    doc_service: DocumentService = Depends(get_document_service)
+    intake_service: DocumentIntakeService = Depends(get_document_intake_service),
 ) -> DocumentResponse:
     """
     Upload a new document.
 
     The file will be stored and queued for OCR processing.
     """
-    # Validate file type (basic check - will be more thorough in OCR phase)
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Filename is required"
         )
 
-    # Check file extension
-    allowed_extensions = {".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif"}
-    file_ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-
-    if file_ext not in allowed_extensions:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not supported. Allowed: {', '.join(allowed_extensions)}"
-        )
-
     try:
-        document = await doc_service.create_document(
-            file=file,
-            user_id=current_user.id,
-            title=title
+        document = intake_service.intake(
+            content=file.file.read(),
+            filename=file.filename,
+            owner_id=current_user.id,
+            uploader_id=current_user.id,
+            title=title,
         )
-
-        # Notify document creation
-        await notification_service.notify_document_created(document.id, current_user.id)
-
-        return document
+        return DocumentResponse.model_validate(document)
 
     except DuplicateError as e:
         raise HTTPException(
@@ -96,13 +87,13 @@ async def upload_document(
                 **e.detail
             }
         )
-    except Exception as e:
-        # Log the full error for debugging
-        import traceback
-        traceback.print_exc()
+    except InvalidDocumentError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except Exception:
+        logger.exception("Failed to upload Document")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload document: {str(e)}"
+            detail="Failed to upload document"
         )
 
 

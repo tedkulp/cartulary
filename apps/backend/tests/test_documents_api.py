@@ -1,13 +1,16 @@
 """Tests for document API endpoints."""
 import uuid
+from io import BytesIO
 from types import SimpleNamespace
 from typing import Iterator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi import UploadFile
 
 from app.api.v1 import documents
+from app.core.exceptions import DuplicateError
 from app.schemas.document import DocumentUpdate
 from tests.fakes import FakeEmbedder, ScriptedChatModel
 
@@ -74,6 +77,57 @@ class TestUpdateDocument:
         assert document.is_public is True
         db.commit.assert_called_once()
         enqueue_embeddings.assert_not_called()
+
+
+class TestUploadDocument:
+    """Tests for the multipart adapter around Document intake."""
+
+    def test_duplicate_response_has_standard_fastapi_detail_shape(self) -> None:
+        existing_id = uuid.uuid4()
+        intake = MagicMock()
+        intake.intake.side_effect = DuplicateError(
+            "Document already exists", detail={"document_id": str(existing_id)}
+        )
+        user = SimpleNamespace(id=uuid.uuid4())
+        upload = UploadFile(file=BytesIO(b"same bytes"), filename="copy.pdf")
+
+        with pytest.raises(HTTPException) as raised:
+            documents.upload_document(
+                file=upload,
+                title=None,
+                current_user=user,
+                intake_service=intake,
+            )
+
+        assert raised.value.status_code == 409
+        assert raised.value.detail == {
+            "error": "duplicate",
+            "message": "Document already exists",
+            "document_id": str(existing_id),
+        }
+        intake.intake.assert_called_once_with(
+            content=b"same bytes",
+            filename="copy.pdf",
+            owner_id=user.id,
+            uploader_id=user.id,
+            title=None,
+        )
+
+    def test_unexpected_failure_does_not_disclose_internal_error(self) -> None:
+        intake = MagicMock()
+        intake.intake.side_effect = RuntimeError("postgres password was secret")
+        upload = UploadFile(file=BytesIO(b"report"), filename="report.pdf")
+
+        with pytest.raises(HTTPException) as raised:
+            documents.upload_document(
+                file=upload,
+                title=None,
+                current_user=SimpleNamespace(id=uuid.uuid4()),
+                intake_service=intake,
+            )
+
+        assert raised.value.status_code == 500
+        assert raised.value.detail == "Failed to upload document"
 
 
 class TestRegenerateEmbeddings:

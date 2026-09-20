@@ -8,7 +8,8 @@ export interface WebSocketEvent {
   type: EventType
   data: {
     document_id?: string
-    user_id?: string
+    owner_id?: string
+    user_id?: string | null
     old_status?: string
     new_status?: string
     [key: string]: any

@@ -2,7 +2,7 @@
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 import redis
@@ -59,18 +59,36 @@ class NotificationService:
         result = redis_client.publish(self.CHANNEL, json.dumps(event))
         logger.info(f"Published event (sync) to {result} subscribers: {event_type} - {data}")
 
-    async def notify_document_created(self, document_id: UUID, user_id: UUID):
+    async def notify_document_created(
+        self,
+        document_id: UUID,
+        owner_id: UUID,
+        uploader_id: Optional[UUID] = None,
+    ) -> None:
         """Notify that a document was created (async)."""
         await self.publish_event(
             "document.created",
-            {"document_id": str(document_id), "user_id": str(user_id)},
+            {
+                "document_id": str(document_id),
+                "owner_id": str(owner_id),
+                "user_id": str(uploader_id) if uploader_id else None,
+            },
         )
 
-    def notify_document_created_sync(self, document_id: UUID, user_id: UUID):
+    def notify_document_created_sync(
+        self,
+        document_id: UUID,
+        owner_id: UUID,
+        uploader_id: Optional[UUID] = None,
+    ) -> None:
         """Notify that a document was created (sync)."""
         self.publish_event_sync(
             "document.created",
-            {"document_id": str(document_id), "user_id": str(user_id)},
+            {
+                "document_id": str(document_id),
+                "owner_id": str(owner_id),
+                "user_id": str(uploader_id) if uploader_id else None,
+            },
         )
 
     async def notify_status_changed(

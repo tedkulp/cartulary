@@ -1,22 +1,18 @@
 """Directory watcher worker - polls import source directories for new files."""
-import hashlib
 import logging
-import mimetypes
-import shutil
 import time
-import uuid
 from datetime import datetime
 from pathlib import Path
 
+from sqlalchemy.orm import Session
+
 from app.database import SessionLocal
-from app.models.document import Document
+from app.core.exceptions import DuplicateError
 from app.models.import_source import ImportSource, ImportSourceStatus, ImportSourceType
-from app.services.storage_service import StorageService
-from app.tasks.document_tasks import process_document
+from app.services.document_intake import ALLOWED_EXTENSIONS, DocumentIntakeService
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.tiff', '.tif', '.bmp'}
 POLL_INTERVAL = 10  # seconds between directory scans
 
 
@@ -31,66 +27,37 @@ def _wait_for_stable_size(path: Path, check_interval: float = 2.0) -> bool:
         return False
 
 
-def _process_file(file_path: Path, source: ImportSource, db) -> bool:
+def _process_file(
+    file_path: Path,
+    source: ImportSource,
+    db: Session,
+    intake_service: DocumentIntakeService | None = None,
+) -> bool:
     """Import a single file.  Returns True if the file was handled (processed
     or skipped as a duplicate), False if it should be retried later."""
-    with open(file_path, 'rb') as f:
-        file_content = f.read()
-
-    checksum = hashlib.sha256(file_content).hexdigest()
-
-    # Deduplication check
-    existing = db.query(Document).filter(
-        Document.checksum == checksum,
-        Document.owner_id == source.owner_id,  # not an access check: deduplication
-    ).first()
-
-    if existing:
-        logger.info(f"Skipping duplicate file {file_path.name} (matches document {existing.id})")
+    intake = intake_service or DocumentIntakeService(db)
+    try:
+        document = intake.intake(
+            content=file_path.read_bytes(),
+            filename=file_path.name,
+            owner_id=source.owner_id,
+        )
+    except DuplicateError as error:
+        logger.info(
+            "Skipping duplicate file %s (matches document %s)",
+            file_path.name,
+            error.detail["document_id"],
+        )
         _handle_post_import(file_path, source)
         return True
 
-    filename = file_path.name
-    storage = StorageService()
-    document_id = uuid.uuid4()
-
-    doc_dir = storage._get_document_path(document_id)
-    stored_path = doc_dir / filename
-    shutil.copy2(file_path, stored_path)
-
-    if storage._is_image_file(filename):
-        logger.info(f"Converting image to PDF: {filename}")
-        stored_path = storage._convert_image_to_pdf(stored_path)
-        filename = stored_path.name
-        mime_type = "application/pdf"
-    else:
-        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-
-    relative_path = str(stored_path.relative_to(storage.base_path))
-
-    document = Document(
-        id=document_id,
-        title=file_path.name,
-        original_filename=file_path.name,
-        file_path=relative_path,
-        checksum=checksum,
-        file_size=stored_path.stat().st_size,
-        mime_type=mime_type,
-        owner_id=source.owner_id,
-        processing_status="pending",
-    )
-    db.add(document)
-    db.commit()
-
-    logger.info(f"Imported {file_path.name} → document {document_id}")
-
-    process_document.delay(str(document_id))
+    logger.info("Imported %s as Document %s", file_path.name, document.id)
 
     _handle_post_import(file_path, source)
     return True
 
 
-def _handle_post_import(file_path: Path, source: ImportSource):
+def _handle_post_import(file_path: Path, source: ImportSource) -> None:
     if source.move_after_import and source.move_to_path:
         dest = Path(source.move_to_path) / file_path.name
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -142,7 +109,7 @@ def _scan_source(source: ImportSource, seen: set, db) -> None:
         seen.add(file_key)
 
 
-def run_directory_watcher():
+def run_directory_watcher() -> None:
     """Entry point: poll all active directory import sources forever."""
     logger.info("Directory watcher started (poll interval: %ds)", POLL_INTERVAL)
 
