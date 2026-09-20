@@ -1,17 +1,38 @@
-FROM python:3.11-slim
+# Builder: compiles any dependency that ships no wheel for the target platform.
+# gcc — and the kernel headers in linux-libc-dev that it pulls in through
+# libc6-dev — stay in this stage, so the runtime image below carries neither.
+FROM python:3.11-slim AS builder
 
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
+
+# A virtualenv keeps the dependencies under one directory the runtime stage can
+# copy wholesale, instead of picking them out of the system site-packages.
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir -r requirements.txt
+
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies. Only postgresql-client: entrypoint.sh waits on
+# pg_isready, and nothing at runtime compiles anything.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Take the dependencies built above. Same base image, so the virtualenv's links
+# back to the interpreter resolve unchanged.
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy entrypoint script and make it executable
 COPY entrypoint.sh .
