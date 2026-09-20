@@ -6,7 +6,7 @@ Cartulary's optional work — OCR, embeddings, chat, metadata extraction — is 
 
 The two `documents.py` sites previously answered 400 and read `settings.EMBEDDING_ENABLED` / `settings.LLM_ENABLED` from inside the handler, which also broke ADR 0001's rule that only the factory reads settings. Asking the factory for the model and treating `None` as off settles both at once (#28).
 
-Because 503 arrives only after a client has already offered the feature, `GET /api/v1/capabilities` reports the same four capabilities from the same builders, so web and mobile can hide or disable a feature instead of presenting one that always errors. It requires authentication: which capabilities a deployment runs is its configuration, not public. Chat and metadata share `LLM_ENABLED` and are reported separately anyway, so no client has to know they are one setting.
+Because 503 arrives only after a client has already offered the feature, `GET /api/v1/capabilities` reports the same four capabilities from the same builders, so web and mobile can hide or disable a feature instead of presenting one that always errors. The same rule reaches the Celery tasks, which chain one step onto the next by asking the factory rather than reading a setting. It requires authentication: which capabilities a deployment runs is its configuration, not public. Chat and metadata share `LLM_ENABLED` and are reported separately anyway, so no client has to know they are one setting.
 
 ## Consequences
 

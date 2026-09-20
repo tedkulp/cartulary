@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useDocumentDetail, useWebSocket, useAuthStore } from '@cartulary/shared'
+import { useDocumentDetail, useWebSocket, useAuthStore, useCapabilityStore } from '@cartulary/shared'
 import { documentService, tagService, websocketService } from '../services'
 import type { Tag } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,8 @@ export default function DocumentDetail() {
   const navigate = useNavigate()
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated())
   const { subscribe } = useWebSocket(websocketService, isAuthenticated)
+  const embeddingsEnabled = useCapabilityStore((state) => state.capabilities.embeddings)
+  const metadataEnabled = useCapabilityStore((state) => state.capabilities.metadata)
 
   const {
     document,
@@ -464,16 +466,22 @@ export default function DocumentDetail() {
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Reprocess OCR
               </DropdownMenuItem>
+              {/* Offered only where there is text to work from and a model to do it
+                  with; without the model these endpoints answer 503 (docs/adr/0003) */}
               {document.ocr_text && (
                 <>
-                  <DropdownMenuItem onClick={() => setEmbeddingsDialogOpen(true)}>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Regenerate Embeddings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setMetadataDialogOpen(true)}>
-                    <Wand2 className="mr-2 h-4 w-4" />
-                    Regenerate Metadata
-                  </DropdownMenuItem>
+                  {embeddingsEnabled && (
+                    <DropdownMenuItem onClick={() => setEmbeddingsDialogOpen(true)}>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Regenerate Embeddings
+                    </DropdownMenuItem>
+                  )}
+                  {metadataEnabled && (
+                    <DropdownMenuItem onClick={() => setMetadataDialogOpen(true)}>
+                      <Wand2 className="mr-2 h-4 w-4" />
+                      Regenerate Metadata
+                    </DropdownMenuItem>
+                  )}
                 </>
               )}
               <DropdownMenuSeparator />

@@ -401,10 +401,13 @@ its builder in `app/providers/factory.py` returns a model rather than `None`.
   written once, since nothing the caller sends can fix it.
 - A caller's own mistake still answers 4xx: regenerating embeddings for a document with no
   text stays 400.
+- Celery tasks ask the factory too: `_enqueue_next_after_ocr()` in `app/tasks/document_tasks.py`
+  chains a finished OCR onto embeddings, or straight to metadata when there is no embedder.
 - `GET /api/v1/capabilities` (authenticated) reports all four capabilities from the same builders.
-  Web fetches it once after login into `useCapabilityStore` (`packages/shared`) and hides
-  Chat when it is off. A failed fetch leaves every capability true, so an older backend
-  without the route keeps working.
+  Web fetches it once after login into `useCapabilityStore` (`packages/shared`) and hides what
+  is off: the Chat nav entry, and the regenerate-embeddings/metadata actions on the document
+  detail page and the bulk bar. A failed fetch leaves every capability true, so an older
+  backend without the route keeps working.
 
 See ADR 0003.
 

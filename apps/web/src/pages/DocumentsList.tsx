@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useDocuments, useWebSocket, useAuthStore, apiErrorMessage } from '@cartulary/shared'
+import { useDocuments, useWebSocket, useAuthStore, useCapabilityStore, apiErrorMessage } from '@cartulary/shared'
 import { documentService, searchService, tagService, websocketService } from '../services'
 import type { Document, Tag, SearchMode, SearchResult } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
@@ -104,6 +104,8 @@ export default function DocumentsList() {
   // WebSocket
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated())
   const { subscribe } = useWebSocket(websocketService, isAuthenticated)
+  const embeddingsEnabled = useCapabilityStore((state) => state.capabilities.embeddings)
+  const metadataEnabled = useCapabilityStore((state) => state.capabilities.metadata)
 
   // Memoized filtered documents for better performance
   const filteredDocuments = useMemo(() => {
@@ -643,32 +645,37 @@ export default function DocumentsList() {
                   )}
                   Reprocess
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkRegenerateEmbeddings}
-                  disabled={bulkActionLoading}
-                >
-                  {bulkActionLoading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Brain className="mr-2 h-4 w-4" />
-                  )}
-                  Regenerate Embeddings
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBulkRegenerateMetadata}
-                  disabled={bulkActionLoading}
-                >
-                  {bulkActionLoading ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-2 h-4 w-4" />
-                  )}
-                  Regenerate Metadata
-                </Button>
+                {/* Hidden without the model behind it: these endpoints answer 503 (docs/adr/0003) */}
+                {embeddingsEnabled && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkRegenerateEmbeddings}
+                    disabled={bulkActionLoading}
+                  >
+                    {bulkActionLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Brain className="mr-2 h-4 w-4" />
+                    )}
+                    Regenerate Embeddings
+                  </Button>
+                )}
+                {metadataEnabled && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBulkRegenerateMetadata}
+                    disabled={bulkActionLoading}
+                  >
+                    {bulkActionLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    Regenerate Metadata
+                  </Button>
+                )}
                 <Button
                   variant="destructive"
                   size="sm"

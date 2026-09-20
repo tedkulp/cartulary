@@ -2,7 +2,7 @@
 import logging
 import random
 from uuid import UUID
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models.document import Document, DocumentEmbedding
-from app.providers.factory import get_embedder, get_formatter_model, get_vision_model
+from app.providers.factory import (
+    get_assistant_model,
+    get_embedder,
+    get_formatter_model,
+    get_vision_model,
+)
 from app.services.ocr_service import OCRService
 from app.services.notification_service import notification_service
 from app.services.page_cache import get_page_cache
@@ -124,17 +129,7 @@ def process_document(
             f"Processed document {document_id} with status: {doc.processing_status}"
         )
 
-        # Trigger embedding generation if enabled and OCR was successful
-        from app.config import settings
-        if settings.EMBEDDING_ENABLED and doc.processing_status == "ocr_complete" and doc.ocr_text:
-            logger.info(f"Triggering embedding generation for document {document_id}")
-            generate_embeddings.delay(document_id)
-        elif settings.LLM_ENABLED and doc.processing_status == "ocr_complete" and doc.ocr_text:
-            # If embeddings disabled but LLM enabled, trigger LLM directly
-            logger.info(f"Embedding generation disabled, triggering LLM metadata extraction for document {document_id}")
-            extract_metadata.delay(document_id)
-        else:
-            logger.info(f"Both embedding and LLM disabled, document processing complete for {document_id}")
+        _enqueue_next_after_ocr(document_id, doc.processing_status, doc.ocr_text)
 
         return {
             "status": "success",
@@ -331,12 +326,12 @@ def generate_embeddings(self, document_id: str) -> dict:
             f"Generated {len(embeddings)} embeddings for document {document_id}"
         )
 
-        # Trigger LLM metadata extraction if enabled
-        if settings.LLM_ENABLED:
+        # Chain onto metadata extraction when there is an assistant model
+        if get_assistant_model() is not None:
             logger.info(f"Triggering LLM metadata extraction for document {document_id}")
             extract_metadata.delay(document_id)
         else:
-            logger.info(f"LLM metadata extraction disabled, skipping for document {document_id}")
+            logger.info(f"No assistant model, skipping metadata extraction for {document_id}")
 
         return {
             "status": "success",
@@ -364,6 +359,29 @@ def generate_embeddings(self, document_id: str) -> dict:
 
     finally:
         db.close()
+
+
+def _enqueue_next_after_ocr(
+    document_id: str, processing_status: str, ocr_text: Optional[str]
+) -> None:
+    """Chain a finished OCR onto whichever capability is on, if any.
+
+    Embeddings go first because that task chains onto metadata extraction itself;
+    with no embedder, metadata is enqueued directly. A capability is off when its
+    builder returns None, never by reading a setting here (ADR 0001, ADR 0003).
+    """
+    if processing_status != "ocr_complete" or not ocr_text:
+        logger.info(f"No OCR text to work from, processing complete for {document_id}")
+        return
+
+    if get_embedder() is not None:
+        logger.info(f"Triggering embedding generation for document {document_id}")
+        generate_embeddings.delay(document_id)
+    elif get_assistant_model() is not None:
+        logger.info(f"No embedder, triggering metadata extraction for {document_id}")
+        extract_metadata.delay(document_id)
+    else:
+        logger.info(f"No embedder or assistant model, processing complete for {document_id}")
 
 
 def _random_tag_color() -> str:
@@ -411,7 +429,6 @@ def extract_metadata(self, document_id: str):
     Returns:
         Dictionary with extraction results
     """
-    from app.providers.factory import get_assistant_model
     from app.services.assistant_service import AssistantService
 
     logger.info(f"Starting metadata extraction for document {document_id}")
