@@ -1,8 +1,13 @@
 """Chat API endpoints for RAG-based document Q&A."""
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.capabilities import (
+    CAPABILITY_DISABLED_RESPONSE,
+    TURN_ON_ASSISTANT_MODEL,
+    capability_disabled_error,
+)
 from app.database import get_db
 from app.models.user import User
 from app.providers.factory import get_assistant_model, get_embedder
@@ -23,14 +28,10 @@ def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
     if assistant_model is None:
         # 503, not 400: the request is fine, the server has the capability turned
         # off. Chat shares LLM_ENABLED with metadata extraction, so an upgrader
-        # who ran chat with the flag off needs to be told to set it.
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "Chat needs an assistant model, and none is configured. "
-                "Set LLM_ENABLED=true, along with LLM_PROVIDER, LLM_MODEL and the "
-                "matching API key, then restart the backend."
-            ),
+        # who ran chat with the flag off needs to be told to set it. See ADR 0003.
+        raise capability_disabled_error(
+            "Chat needs an assistant model, and none is configured.",
+            TURN_ON_ASSISTANT_MODEL,
         )
 
     return ChatService(
@@ -43,9 +44,7 @@ def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
 @router.post(
     "/",
     response_model=ChatResponse,
-    responses={
-        503: {"description": "No assistant model is configured (LLM_ENABLED is false)."}
-    },
+    responses=CAPABILITY_DISABLED_RESPONSE,
 )
 async def chat(
     request: ChatRequest,

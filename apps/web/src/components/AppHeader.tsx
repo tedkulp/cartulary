@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useAuthStore } from '@cartulary/shared'
+import { useAuthStore, useCapabilityStore } from '@cartulary/shared'
 import { Button } from './ui/button'
 import {
   DropdownMenu,
@@ -15,6 +15,7 @@ export default function AppHeader() {
   const location = useLocation()
   const user = useAuthStore((state) => state.user)
   const logout = useAuthStore((state) => state.logout)
+  const chatEnabled = useCapabilityStore((state) => state.capabilities.chat)
 
   const isActive = (path: string) => location.pathname === path
 
@@ -36,13 +37,16 @@ export default function AppHeader() {
             <FileText className="mr-2 h-4 w-4" />
             Documents
           </Button>
-          <Button
-            variant={isActive('/chat') ? 'secondary' : 'ghost'}
-            onClick={() => navigate('/chat')}
-          >
-            <MessageSquare className="mr-2 h-4 w-4" />
-            Chat
-          </Button>
+          {/* Hidden rather than offered when the backend has no assistant model */}
+          {chatEnabled && (
+            <Button
+              variant={isActive('/chat') ? 'secondary' : 'ghost'}
+              onClick={() => navigate('/chat')}
+            >
+              <MessageSquare className="mr-2 h-4 w-4" />
+              Chat
+            </Button>
+          )}
           <Button
             variant={isActive('/tags') ? 'secondary' : 'ghost'}
             onClick={() => navigate('/tags')}

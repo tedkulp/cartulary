@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { chatService } from '../services'
+import { apiErrorMessage, useCapabilityStore } from '@cartulary/shared'
 import type { ChatMessage, DocumentSource } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -20,6 +21,8 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatEnabled = useCapabilityStore((state) => state.capabilities.chat)
+  const capabilitiesLoaded = useCapabilityStore((state) => state.loaded)
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -61,12 +64,18 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
       console.error('Chat error:', error)
-      toast.error('Failed to get response. Please try again.')
-      
-      // Add error message
+
+      // Show what the backend said: a disabled capability names the setting that
+      // turns chat back on, which "please try again" would hide (docs/adr/0003).
+      const detail = apiErrorMessage(
+        error,
+        'Failed to get response. Please try again.'
+      )
+      toast.error(detail)
+
       const errorMessage: MessageWithSources = {
         role: 'assistant',
-        content: 'I encountered an error processing your question. Please try again.',
+        content: detail,
       }
       setMessages((prev) => [...prev, errorMessage])
     } finally {
@@ -85,6 +94,40 @@ export default function ChatPage() {
     setMessages([])
     setInput('')
     inputRef.current?.focus()
+  }
+
+  // Wait to be told, rather than flashing the chat UI and then replacing it
+  if (!capabilitiesLoaded) {
+    return (
+      <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+
+  // The nav hides Chat when it is off, but the route can still be reached directly
+  if (!chatEnabled) {
+    return (
+      <div className="flex flex-col h-[calc(100vh-4rem)] max-w-5xl mx-auto">
+        <Card className="flex-1 flex items-center justify-center">
+          <CardContent className="flex flex-col items-center text-center space-y-4 p-6">
+            <MessageSquare className="h-16 w-16 text-muted-foreground" />
+            <div>
+              <h3 className="text-lg font-medium mb-2">Chat is turned off</h3>
+              <p className="text-muted-foreground max-w-md">
+                This server has no assistant model configured, so it cannot answer
+                questions about your documents. An administrator can turn chat on by
+                setting <code className="font-mono">LLM_ENABLED=true</code>, along with
+                the provider, model and matching API key, then restarting the backend.
+              </p>
+            </div>
+            <Button variant="outline" onClick={() => navigate('/')}>
+              Back to Documents
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

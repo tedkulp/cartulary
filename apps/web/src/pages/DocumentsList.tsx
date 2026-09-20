@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useDocuments, useWebSocket, useAuthStore } from '@cartulary/shared'
+import { useDocuments, useWebSocket, useAuthStore, apiErrorMessage } from '@cartulary/shared'
 import { documentService, searchService, tagService, websocketService } from '../services'
 import type { Document, Tag, SearchMode, SearchResult } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
@@ -372,7 +372,8 @@ export default function DocumentsList() {
       await Promise.all(promises)
       toast.success(`Regenerating embeddings for ${selectedIds.size} document(s)`)
     } catch (error) {
-      toast.error('Failed to regenerate embeddings for some documents')
+      // A disabled capability answers 503 naming the setting to change (docs/adr/0003)
+      toast.error(apiErrorMessage(error, 'Failed to regenerate embeddings for some documents'))
     } finally {
       setBulkActionLoading(false)
     }
@@ -385,7 +386,8 @@ export default function DocumentsList() {
       await Promise.all(promises)
       toast.success(`Regenerating metadata for ${selectedIds.size} document(s)`)
     } catch (error) {
-      toast.error('Failed to regenerate metadata for some documents')
+      // A disabled capability answers 503 naming the setting to change (docs/adr/0003)
+      toast.error(apiErrorMessage(error, 'Failed to regenerate metadata for some documents'))
     } finally {
       setBulkActionLoading(false)
     }

@@ -389,6 +389,25 @@ Expect roughly 5–15s per page for pass 1 and 3–8s for pass 2. Raising `OCR_P
 - Pass-2 output is cleaned before use: `<think>` blocks (including one missing its opening or closing tag), a single fence wrapping the whole reply, and a leading "Here is the formatted text:"-style preamble are removed. Tags or an opening line that also appear in the pass-1 raw text are kept as document content. Each page's cleaned text is logged between `--- BEGIN FINAL OUTPUT ---` markers.
 - `detect_language()` uses `langdetect` with a fixed seed for reproducibility, and falls back to `"en"` on unusable text.
 
+## Capabilities
+
+OCR, embeddings, chat and metadata extraction are **capabilities**: each is on exactly when
+its builder in `app/providers/factory.py` returns a model rather than `None`.
+
+- An endpoint that needs a capability that is off raises `capability_disabled_error()` from
+  `app/core/capabilities.py` and answers **503**. Don't write the status code at the call
+  site; don't read the `*_ENABLED` setting in a handler — ask the factory. Pass what is
+  missing plus the matching `TURN_ON_*` constant, so the instruction to the operator is
+  written once, since nothing the caller sends can fix it.
+- A caller's own mistake still answers 4xx: regenerating embeddings for a document with no
+  text stays 400.
+- `GET /api/v1/capabilities` (authenticated) reports all four capabilities from the same builders.
+  Web fetches it once after login into `useCapabilityStore` (`packages/shared`) and hides
+  Chat when it is off. A failed fetch leaves every capability true, so an older backend
+  without the route keeps working.
+
+See ADR 0003.
+
 ## Testing Strategy
 
 ### Backend Tests
@@ -755,7 +774,8 @@ When starting a new session, provide:
 ### Areas Requiring Special Attention
 - **Ollama dependency**: OCR and embeddings require Ollama running and accessible
 - **Vector embeddings**: `EMBEDDING_DIMENSION` must match the model (768 for nomic-embed-text, 384 for local, 1536 for OpenAI); nothing guesses it from the model name. The embedder comes from `get_embedder()` in `app/providers/factory.py`, which returns `None` when `EMBEDDING_ENABLED` is false
-- **Assistant model**: Metadata extraction and RAG chat go through `AssistantService` (`app/services/assistant_service.py`), built on the chat model from `get_assistant_model()`. That builder picks the adapter from `LLM_PROVIDER` and the key that matches it (`OPENAI_API_KEY` or `GEMINI_API_KEY`), and returns `None` when `LLM_ENABLED` is false. Then the metadata task skips and the chat API returns 503, naming `LLM_ENABLED` in the message. One flag covers both metadata extraction and chat
+- **Assistant model**: Metadata extraction and RAG chat go through `AssistantService` (`app/services/assistant_service.py`), built on the chat model from `get_assistant_model()`. That builder picks the adapter from `LLM_PROVIDER` and the key that matches it (`OPENAI_API_KEY` or `GEMINI_API_KEY`), and returns `None` when `LLM_ENABLED` is false. Then the metadata task skips and both the chat and regenerate-metadata endpoints return 503, naming `LLM_ENABLED` in the message. One flag covers both metadata extraction and chat
+- **Disabled capabilities**: an endpoint needing a capability that is off asks the factory for the model and raises `capability_disabled_error()` from `app/core/capabilities.py`, which is the only place the status code (503) is written. The detail names the setting that turns it back on. A caller's own mistake keeps its 4xx. See ADR 0003
 - **Vision models**: Ensure Ollama has the vision model pulled (minicpm-v, llava, gemma3)
 - **Async operations**: Use async/await consistently in backend
 - **Error handling**: Provide user-friendly messages, log detailed errors

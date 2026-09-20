@@ -60,6 +60,7 @@ class Settings(BaseSettings):
         return []
 
     # Vision OCR (Phase 2 - LLM-based, two-pass system)
+    # False means no vision or formatter model, so pages keep only embedded text.
     OCR_ENABLED: bool = False
     VISION_OCR_MODEL: str = "minicpm-v"  # Ollama vision model for text extraction (pass 1)
     OCR_FORMATTER_MODEL: str = "qwen2.5:7b-instruct-q4_K_M"  # Ollama text model for formatting (pass 2)
@@ -75,7 +76,9 @@ class Settings(BaseSettings):
     MODEL_TIMEOUT_SECONDS: float = 300.0
 
     # Embeddings (Phase 3)
-    EMBEDDING_ENABLED: bool = False  # Enable/disable automatic embedding generation
+    # Embedder: chunk and query embedding. False means no embedder, so the endpoints
+    # that need one answer 503 (ADR 0003).
+    EMBEDDING_ENABLED: bool = False
     EMBEDDING_PROVIDER: str = "local"  # local, openai, ollama
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"  # For local: all-MiniLM-L6-v2, For OpenAI: text-embedding-3-small, For Ollama: nomic-embed-text
     EMBEDDING_DIMENSION: int = 384  # 384 for MiniLM, 768 for nomic-embed-text, 1536 for OpenAI text-embedding-3-small
@@ -84,7 +87,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None  # Required if EMBEDDING_PROVIDER=openai
 
     # LLM (Phase 4 - Optional)
-    LLM_ENABLED: bool = False  # Assistant model: metadata extraction and chat (chat 503s if false)
+    # Assistant model: metadata extraction and chat. False means no assistant model,
+    # so both answer 503 (ADR 0003).
+    LLM_ENABLED: bool = False
     LLM_PROVIDER: str = "openai"  # openai, gemini, ollama
     LLM_MODEL: str = "gpt-4o-mini"  # gpt-4o-mini, gemini-pro, llama2
     LLM_BASE_URL: Optional[str] = None  # For Ollama (default: http://localhost:11434)

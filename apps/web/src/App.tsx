@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useAuthStore } from '@cartulary/shared'
+import { useAuthStore, useCapabilityStore } from '@cartulary/shared'
 import { Toaster } from './components/ui/sonner'
 import { Loader2 } from 'lucide-react'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -21,6 +22,14 @@ import ChatPage from './pages/ChatPage'
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated())
   const initializing = useAuthStore((state) => state.initializing)
+  const fetchCapabilities = useCapabilityStore((state) => state.fetch)
+
+  // Ask the backend what it can do, now that there is a token to ask with
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchCapabilities()
+    }
+  }, [isAuthenticated, fetchCapabilities])
 
   // Show loading spinner while initializing auth
   if (initializing) {

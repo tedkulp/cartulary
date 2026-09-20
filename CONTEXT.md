@@ -39,3 +39,12 @@ _Avoid_: batch size, OCR parallelism
 Where a page image's finished OCR text is remembered, so an identical page is never read
 twice by the same models. A speed-up, never a source of truth.
 _Avoid_: OCR cache, result store
+
+### Capabilities
+
+**Capability**:
+Optional work a deployment either can or cannot do: OCR, embeddings, chat, metadata
+extraction. A capability is on exactly when its builder in the factory returns a model
+rather than `None`. An endpoint needing one that is off answers 503; `GET /capabilities`
+reports all four so a client can hide the feature instead of offering it. See ADR 0003.
+_Avoid_: feature flag, toggle

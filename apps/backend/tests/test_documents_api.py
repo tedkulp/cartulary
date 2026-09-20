@@ -8,8 +8,8 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.v1 import documents
-from app.config import settings
 from app.schemas.document import DocumentUpdate
+from tests.fakes import FakeEmbedder, ScriptedChatModel
 
 
 def _document(processing_status: str) -> SimpleNamespace:
@@ -82,9 +82,37 @@ class TestRegenerateEmbeddings:
     def test_refuses_when_embeddings_disabled(
         self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With no embedder, the task would skip, so the endpoint must not claim it started."""
-        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", False)
+        """With no embedder, the task would skip, so the endpoint must not claim it started.
+
+        503, not 400: the request is fine, the capability is off (ADR 0003), and
+        the detail names the setting that turns it back on.
+        """
+        monkeypatch.setattr(documents, "get_embedder", lambda: None)
         document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
+
+        with pytest.raises(HTTPException) as raised:
+            documents.regenerate_embeddings(document_id=document.id, document=document)
+
+        assert raised.value.status_code == 503
+        assert "EMBEDDING_ENABLED=true" in raised.value.detail
+        enqueue_embeddings.assert_not_called()
+
+    def test_enqueues_when_embeddings_enabled(
+        self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(documents, "get_embedder", lambda: FakeEmbedder())
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
+
+        documents.regenerate_embeddings(document_id=document.id, document=document)
+
+        enqueue_embeddings.assert_called_once_with(str(document.id))
+
+    def test_refuses_a_document_with_no_text(
+        self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing to embed is the caller's problem, so it stays a 400."""
+        monkeypatch.setattr(documents, "get_embedder", lambda: FakeEmbedder())
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text="")
 
         with pytest.raises(HTTPException) as raised:
             documents.regenerate_embeddings(document_id=document.id, document=document)
@@ -92,12 +120,48 @@ class TestRegenerateEmbeddings:
         assert raised.value.status_code == 400
         enqueue_embeddings.assert_not_called()
 
-    def test_enqueues_when_embeddings_enabled(
-        self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
+
+class TestRegenerateMetadata:
+    """Tests for the regenerate_metadata endpoint handler."""
+
+    @pytest.fixture
+    def enqueue_metadata(self) -> Iterator[MagicMock]:
+        with patch("app.tasks.document_tasks.extract_metadata.delay") as delay:
+            yield delay
+
+    def test_refuses_when_no_assistant_model(
+        self, enqueue_metadata: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(settings, "EMBEDDING_ENABLED", True)
+        """Same answer as chat, which shares LLM_ENABLED with this (issue #28)."""
+        monkeypatch.setattr(documents, "get_assistant_model", lambda: None)
         document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
 
-        documents.regenerate_embeddings(document_id=document.id, document=document)
+        with pytest.raises(HTTPException) as raised:
+            documents.regenerate_metadata(document_id=document.id, document=document)
 
-        enqueue_embeddings.assert_called_once_with(str(document.id))
+        assert raised.value.status_code == 503
+        assert "LLM_ENABLED=true" in raised.value.detail
+        enqueue_metadata.assert_not_called()
+
+    def test_enqueues_when_an_assistant_model_exists(
+        self, enqueue_metadata: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(documents, "get_assistant_model", lambda: ScriptedChatModel())
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text="Some text")
+
+        documents.regenerate_metadata(document_id=document.id, document=document)
+
+        enqueue_metadata.assert_called_once_with(str(document.id))
+
+    def test_refuses_a_document_with_no_text(
+        self, enqueue_metadata: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing to read metadata off is the caller's problem, so it stays a 400."""
+        monkeypatch.setattr(documents, "get_assistant_model", lambda: ScriptedChatModel())
+        document = SimpleNamespace(id=uuid.uuid4(), ocr_text=None)
+
+        with pytest.raises(HTTPException) as raised:
+            documents.regenerate_metadata(document_id=document.id, document=document)
+
+        assert raised.value.status_code == 400
+        enqueue_metadata.assert_not_called()

@@ -7,6 +7,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.core.capabilities import (
+    CAPABILITY_DISABLED_RESPONSE,
+    TURN_ON_ASSISTANT_MODEL,
+    TURN_ON_EMBEDDER,
+    capability_disabled_error,
+)
 from app.core.exceptions import DuplicateError, NotFoundError
 from app.core.permissions import (
     PermissionLevel,
@@ -20,6 +26,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.document import Document
+from app.providers.factory import get_assistant_model, get_embedder
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentOCRTextUpdate
 from app.services.document_service import DocumentService
 from app.services.notification_service import notification_service
@@ -308,7 +315,8 @@ def force_reprocess_document(
     "/{document_id}/regenerate-embeddings",
     response_model=dict,
     summary="Regenerate embeddings",
-    description="Regenerate vector embeddings for a document"
+    description="Regenerate vector embeddings for a document",
+    responses=CAPABILITY_DISABLED_RESPONSE,
 )
 def regenerate_embeddings(
     document_id: UUID,
@@ -322,12 +330,11 @@ def regenerate_embeddings(
             detail="Document has no extracted text. Run OCR first."
         )
 
-    # Check if embeddings are enabled
-    from app.config import settings
-    if not settings.EMBEDDING_ENABLED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Embedding generation is disabled in configuration."
+    # No embedder means the task would skip, so don't claim it started (ADR 0003)
+    if get_embedder() is None:
+        raise capability_disabled_error(
+            "Embedding generation needs an embedder, and none is configured.",
+            TURN_ON_EMBEDDER,
         )
 
     # Trigger embedding generation
@@ -346,7 +353,8 @@ def regenerate_embeddings(
     "/{document_id}/regenerate-metadata",
     response_model=dict,
     summary="Regenerate LLM metadata",
-    description="Regenerate AI-extracted metadata for a document"
+    description="Regenerate AI-extracted metadata for a document",
+    responses=CAPABILITY_DISABLED_RESPONSE,
 )
 def regenerate_metadata(
     document_id: UUID,
@@ -360,12 +368,11 @@ def regenerate_metadata(
             detail="Document has no extracted text. Run OCR first."
         )
 
-    # Check if LLM is enabled
-    from app.config import settings
-    if not settings.LLM_ENABLED:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="LLM metadata extraction is disabled in configuration."
+    # No assistant model means the task would skip, so don't claim it started (ADR 0003)
+    if get_assistant_model() is None:
+        raise capability_disabled_error(
+            "Metadata extraction needs an assistant model, and none is configured.",
+            TURN_ON_ASSISTANT_MODEL,
         )
 
     # Trigger metadata extraction
