@@ -99,6 +99,7 @@ cartulary/
 │           ├── stores/       # Zustand store definitions
 │           └── utils/        # Shared utilities
 │
+├── justfile                  # Common developer tasks (`just --list`)
 ├── docker-compose.yml        # Development environment
 ├── docker-compose.prod.yml   # Production environment
 ├── pnpm-workspace.yaml       # pnpm workspace config
@@ -520,12 +521,11 @@ VITE_API_URL=http://localhost:8000
 ### Creating a Migration
 ```bash
 # Auto-generate migration from model changes
-cd apps/backend
-alembic revision --autogenerate -m "Add document_embeddings table"
+just migration "Add document_embeddings table"
 
-# Review the generated migration in alembic/versions/
+# Review the generated migration in apps/backend/alembic/versions/
 # Edit if needed, then apply:
-alembic upgrade head
+just migrate
 ```
 
 ### Migration Best Practices
@@ -596,56 +596,35 @@ feat(web): add document upload component
 
 ## Common Tasks
 
-**IMPORTANT: DO NOT run `docker compose up` or `docker compose build` commands. The user will handle Docker operations manually.**
+Every task runs through the `justfile` at the repo root. `just --list` shows all of
+them, grouped (setup, dev, mobile, build, test, db, docker, clean). Use the recipe
+rather than the underlying command, so there is one definition to keep correct.
 
-### Run Backend Locally (outside Docker)
+**IMPORTANT: DO NOT run the Docker recipes (`just up`, `just up-build`, `just down`, …)
+or `docker compose` directly. The user will handle Docker operations manually.**
+
+Backend recipes use `apps/backend/.venv` and fail with an explicit message if it is
+missing (`just install-py` creates it). Host-side backend recipes reach the Postgres
+and Redis that compose publishes on localhost.
+
 ```bash
-cd apps/backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+just install          # pnpm workspace + shared build + backend venv
+just dev-backend      # uvicorn with reload on :8000
+just dev              # every frontend dev server (or just dev-web)
+just mobile           # Expo dev server (also: just ios, just android)
+just build-shared     # rebuild @cartulary/shared
 
-### Run Frontend Locally
-```bash
-# From project root
-pnpm install
-pnpm dev
+just test             # backend tests + type checks, as CI runs them
+just test-backend -k ocr   # pytest; arguments pass through
+just test-cov         # pytest with coverage
+just test-live        # contract tests against real model providers
+just type-check-web   # the type-check CI gates on
+just type-check       # TypeScript across the workspace, mobile included
+just e2e              # Playwright
 
-# Or just web
-cd apps/web
-pnpm dev
-```
-
-### Run Mobile App
-```bash
-cd apps/mobile
-pnpm install
-pnpm start  # Start Expo dev server
-pnpm ios    # Run on iOS Simulator
-pnpm android # Run on Android Emulator
-```
-
-### Run Tests
-```bash
-# Backend
-cd apps/backend
-pytest
-
-# Frontend type checking
-pnpm type-check
-```
-
-### Create Database Migration
-```bash
-cd apps/backend
-alembic revision --autogenerate -m "Description"
-alembic upgrade head
-```
-
-### Build Shared Package
-```bash
-cd packages/shared
-pnpm build
+just migrate                        # alembic upgrade head
+just migration "Description"        # autogenerate a revision
+just db-current                     # current revision
 ```
 
 ## Troubleshooting
@@ -670,20 +649,17 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 ### Frontend Build Errors
 ```bash
-# Clear node_modules and reinstall
-rm -rf node_modules pnpm-lock.yaml
-pnpm install
+# Clear every node_modules and reinstall
+just reinstall
 ```
 
 ### Mobile App Issues
 ```bash
 # Clear Expo cache
-cd apps/mobile
-pnpm start --clear
+just mobile-clean
 
 # Reinstall dependencies
-rm -rf node_modules
-pnpm install
+just reinstall
 ```
 
 ## Performance Optimization

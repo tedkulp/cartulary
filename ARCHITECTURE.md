@@ -315,7 +315,7 @@ Plus external Ollama service managed separately.
 
 1. **Stop old containers:**
    ```bash
-   docker compose down
+   just down
    ```
 
 2. **The new docker-compose.yml is already in place**
@@ -323,7 +323,7 @@ Plus external Ollama service managed separately.
 
 3. **Start new architecture:**
    ```bash
-   docker compose up -d
+   just up
    ```
 
 4. **Verify background workers:**

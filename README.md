@@ -74,6 +74,8 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
     ```
 - At least 4GB RAM available for Docker
 - Node.js 18+ and pnpm 8+ (for frontend development)
+- [`just`](https://just.systems) — the command runner every task below goes through
+  (`just --list` shows them all)
 
 ### Installation
 
@@ -85,7 +87,7 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 
 2. **Copy environment files**:
    ```bash
-   cp .env.example .env
+   just env
    cp apps/backend/.env.example apps/backend/.env
    ```
 
@@ -104,12 +106,12 @@ A modern digital archive system with OCR processing, semantic search, and AI-pow
 
 5. **Start the services**:
    ```bash
-   docker compose up -d
+   just up
    ```
 
 6. **Run database migrations**:
    ```bash
-   docker compose exec backend alembic upgrade head
+   just exec backend alembic upgrade head
    ```
 
 7. **Access the application**:
@@ -154,6 +156,7 @@ cartulary/
 │           ├── hooks/        # React hooks
 │           └── stores/       # Zustand stores
 │
+├── justfile                  # Common developer tasks (`just --list`)
 ├── docker-compose.yml        # Development environment
 ├── docker-compose.prod.yml   # Production environment
 ├── pnpm-workspace.yaml       # pnpm workspace config
@@ -163,55 +166,54 @@ cartulary/
 
 ## Development Setup
 
+All day-to-day tasks are [`just`](https://just.systems) recipes. Run `just` with no
+arguments to see every recipe, grouped by what it's for.
+
+### First-time setup
+
+```bash
+# pnpm workspace, shared package build, and apps/backend/.venv
+just install
+```
+
 ### Backend Development
 
 ```bash
-cd apps/backend
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
 # Run migrations
-alembic upgrade head
+just migrate
 
-# Start development server
-uvicorn app.main:app --reload
+# Start development server (http://localhost:8000)
+just dev-backend
+
+# Celery worker and scheduler
+just worker
+just beat
 ```
+
+Host-side backend recipes talk to the Postgres and Redis that Docker Compose
+publishes on localhost, so start those first with `just up-backend`.
 
 ### Web Frontend Development
 
 ```bash
-# From project root
-pnpm install
-
 # Start all frontend apps in dev mode
-pnpm dev
+just dev
 
-# Or start just the web app
-cd apps/web
-pnpm dev
+# Or start just the web app (http://localhost:8080)
+just dev-web
 ```
 
 ### Mobile App Development
 
 ```bash
-cd apps/mobile
-
-# Install dependencies
-pnpm install
-
 # Start Expo development server
-pnpm start
+just mobile
 
 # Run on iOS Simulator
-pnpm ios
+just ios
 
 # Run on Android Emulator
-pnpm android
+just android
 ```
 
 See [apps/mobile/README.md](apps/mobile/README.md) for detailed mobile setup instructions.
@@ -219,16 +221,23 @@ See [apps/mobile/README.md](apps/mobile/README.md) for detailed mobile setup ins
 ### Running Tests
 
 ```bash
-# Backend tests
-cd apps/backend
-pytest
+# Backend tests and type checks together, as CI runs them
+just test
+
+# Backend tests only; extra arguments pass through to pytest
+just test-backend -k ocr
+
+# Backend tests with a coverage report
+just test-cov
+
+# Contract tests against real model providers
+just test-live
 
 # Frontend type checking
-pnpm type-check
+just type-check
 
-# Frontend tests
-cd apps/web
-pnpm test
+# Playwright end-to-end tests
+just e2e
 ```
 
 ## Docker Images
@@ -258,7 +267,7 @@ Use the production docker-compose file with pre-built images:
 
 ```bash
 # Pull latest images and start
-docker compose -f docker-compose.prod.yml up -d
+just prod-up
 ```
 
 ## Configuration
@@ -425,7 +434,7 @@ The OCR system automatically optimizes processing for reliability and memory eff
 
 If real-time updates aren't working:
 
-1. Check Redis is running: `docker compose ps redis`
+1. Check Redis is running: `just ps redis`
 2. Verify WebSocket endpoint is accessible: Check browser console for connection errors
 3. Ensure JWT token is valid: WebSocket authentication uses the same token as API calls
 
@@ -441,7 +450,7 @@ If workers are being killed (OOM):
 
 If OCR consistently fails on specific files:
 
-1. Check Celery worker logs: `docker compose logs celery_worker`
+1. Check Celery worker logs: `just logs celery_worker`
 2. Verify Ollama is running and the vision model is pulled
 3. Check file size - very large images may need manual resizing
 4. Try reprocessing: Click "Reprocess OCR" in document details

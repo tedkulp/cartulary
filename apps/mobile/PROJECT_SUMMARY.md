@@ -157,15 +157,15 @@ mobile/
 
 ### Quick Start (5 minutes)
 ```bash
-cd mobile
-pnpm install
-pnpm start
+# from the repo root
+just install-js
+just mobile
 ```
 
 Then scan QR code with Expo Go app or run on simulator:
 ```bash
-pnpm ios    # iOS Simulator (Mac only)
-pnpm android    # Android Emulator
+just ios    # iOS Simulator (Mac only)
+just android    # Android Emulator
 ```
 
 See [QUICKSTART.md](./QUICKSTART.md) for detailed instructions.
@@ -235,7 +235,7 @@ While comprehensive tests aren't implemented yet, the architecture supports:
 
 ### Development Build
 ```bash
-pnpm start
+just mobile
 ```
 
 ### Production Build

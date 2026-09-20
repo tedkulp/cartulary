@@ -6,6 +6,7 @@ Get up and running with the Cartulary React Native app in minutes!
 
 - Node.js 18+ installed
 - pnpm installed (`npm install -g pnpm`)
+- [`just`](https://just.systems) installed (recipes are run from the repo root)
 - Expo Go app on your phone (optional, for quick testing)
 - Cartulary backend running (see main project README)
 
@@ -14,14 +15,14 @@ Get up and running with the Cartulary React Native app in minutes!
 ### 1. Install Dependencies
 
 ```bash
-cd mobile
-pnpm install
+# from the repo root
+just install-js
 ```
 
 ### 2. Start the Development Server
 
 ```bash
-pnpm start
+just mobile
 ```
 
 ### 3. Open on Your Device
@@ -34,10 +35,10 @@ pnpm start
 **Option B: Use Simulator/Emulator**
 ```bash
 # iOS (Mac only)
-pnpm ios
+just ios
 
 # Android
-pnpm android
+just android
 ```
 
 ### 4. Configure Backend URL
@@ -114,13 +115,13 @@ Once logged in:
 
 ```bash
 # Clear Metro cache if you have issues
-pnpm clean
+just mobile-clean
 
 # Type check
-pnpm type-check
+just type-check-mobile
 
 # View on web (limited features)
-pnpm web
+just mobile-web
 ```
 
 ## Need Help?

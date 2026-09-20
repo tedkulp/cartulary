@@ -5,15 +5,23 @@
 Test just the frontend type-check that runs in CI:
 
 ```bash
-./test-frontend.sh
+just type-check-web
 ```
 
-This simulates exactly what GitHub Actions does:
-1. Install pnpm dependencies
-2. Build @cartulary/shared package
-3. Run type-check on web app
+This does what GitHub Actions does:
+1. Build the `@cartulary/shared` package
+2. Run type-check on the web app
 
 **Time**: ~3-5 seconds (vs 5+ minutes on GitHub)
+
+## Full CI Run
+
+To reproduce the whole `test` job — backend pytest with coverage, then the web
+type-check — from a clean install:
+
+```bash
+just ci
+```
 
 ## Using `act` (Full Workflow Simulation)
 
@@ -32,26 +40,32 @@ act -j build --matrix name:backend
 
 **Note**: `act` requires Docker and downloads large runner images (~500MB-17GB depending on size chosen).
 
-## Manual Commands
+## Individual Steps
 
-You can also run individual steps:
+`just --list` shows everything; the pieces CI runs are:
 
 ```bash
-# Type check web
-cd apps/web && pnpm type-check
+# Backend tests
+just test-backend
 
-# Type check mobile
-pnpm --filter @cartulary/mobile type-check
+# Backend tests with coverage
+just test-cov
 
 # Build shared package
-pnpm --filter @cartulary/shared build
+just build-shared
 
-# Run all type checks
-pnpm type-check
+# Type check web only
+just type-check-web
+
+# Type check mobile only
+just type-check-mobile
+
+# Type check everything, mobile included
+just type-check
 ```
 
 ## Tips
 
-- **Before pushing**: Run `./test-frontend.sh` to catch issues early
+- **Before pushing**: Run `just test` to catch issues early
 - **Faster iteration**: Test locally instead of waiting for CI
 - **Debug CI failures**: Replicate the exact environment and commands

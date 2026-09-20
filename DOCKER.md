@@ -1,25 +1,28 @@
 # Docker Development Guide
 
+Every command below is a [`just`](https://just.systems) recipe wrapping `docker compose`.
+`just --list` shows them all, and the raw `docker compose` form still works if you prefer it.
+
 ## Quick Start
 
 ### Start all services
 ```bash
-docker compose up
+just up
 ```
 
 ### Start without frontend (recommended for development)
 ```bash
-docker compose up postgres redis backend celery_worker
+just up-backend
 ```
 
 Then run frontend locally:
 ```bash
-pnpm dev
+just dev
 ```
 
 ### Rebuild after changes
 ```bash
-docker compose up --build
+just up-build
 ```
 
 ## Services
@@ -55,13 +58,13 @@ For the best development experience with hot-reload:
 
 1. Start backend services only:
    ```bash
-   docker compose up postgres redis backend celery_worker
+   just up-backend
    ```
 
 2. Run frontend locally:
    ```bash
-   pnpm install
-   pnpm dev
+   just install-js
+   just dev
    ```
 
 This gives you:
@@ -74,12 +77,12 @@ This gives you:
 If you prefer to run everything in Docker:
 
 ```bash
-docker compose up
+just up
 ```
 
 **Note**: The frontend container does NOT have hot-reload enabled. To see code changes:
 1. Make your changes
-2. Rebuild: `docker compose up --build web`
+2. Rebuild: `just up-build frontend`
 
 ## Environment Variables
 
@@ -118,39 +121,39 @@ See `.env.example` for all available options.
 
 ### View logs
 ```bash
-docker compose logs -f backend
-docker compose logs -f celery_worker
+just logs backend
+just logs celery_worker
 ```
 
 ### Restart a service
 ```bash
-docker compose restart backend
+just restart backend
 ```
 
 ### Stop all services
 ```bash
-docker compose down
+just down
 ```
 
 ### Clean everything (including data)
 ```bash
-docker compose down -v
+just down-volumes
 ```
 
 ### Run backend migrations
 Migrations run automatically when the backend starts. To run manually:
 ```bash
-docker compose exec backend alembic upgrade head
+just exec backend alembic upgrade head
 ```
 
 ### Access database
 ```bash
-docker compose exec postgres psql -U cartulary -d cartulary
+just psql
 ```
 
 ### Access Redis
 ```bash
-docker compose exec redis redis-cli
+just redis
 ```
 
 ## Troubleshooting
@@ -158,7 +161,7 @@ docker compose exec redis redis-cli
 ### Frontend won't start
 Make sure you've built the container:
 ```bash
-docker compose build web
+just docker-build frontend
 ```
 
 ### Need direct backend access for debugging
@@ -172,7 +175,7 @@ The backend port is not exposed by default. To access it directly:
 
 2. Restart the backend:
    ```bash
-   docker compose up -d backend
+   just up backend
    ```
 
 3. Access backend docs at `http://localhost:8000/docs`
@@ -180,7 +183,7 @@ The backend port is not exposed by default. To access it directly:
 ### Database connection errors
 Ensure postgres is healthy:
 ```bash
-docker compose ps
+just ps
 ```
 
 ### Port conflicts
@@ -192,7 +195,7 @@ ports:
 
 ### Clear build cache
 ```bash
-docker compose build --no-cache
+just docker-build --no-cache
 ```
 
 ### Ollama connection issues
@@ -218,13 +221,13 @@ For production, use the production docker-compose file with pre-built images fro
 
 ```bash
 # Pull and start all services with GHCR images
-docker compose -f docker-compose.prod.yml up -d
+just prod-up
 
 # View logs
-docker compose -f docker-compose.prod.yml logs -f
+just prod-logs
 
 # Stop services
-docker compose -f docker-compose.prod.yml down
+just prod-down
 ```
 
 Or build locally:
@@ -325,9 +328,8 @@ docker buildx build \
 The mobile app (`apps/mobile`) is **not containerized** - it runs via Expo:
 
 ```bash
-cd apps/mobile
-pnpm install
-pnpm start
+just install-js
+just mobile
 ```
 
 See [apps/mobile/README.md](apps/mobile/README.md) for mobile development instructions.

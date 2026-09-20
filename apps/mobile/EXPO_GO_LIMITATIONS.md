@@ -25,7 +25,7 @@ The app now gracefully handles this! You can test **everything except PDF viewin
 ```bash
 # Already running? Great! The app will now work.
 # If not:
-pnpm start
+just mobile
 
 # Then scan QR code with Expo Go
 ```
@@ -51,7 +51,7 @@ eas build --profile development --platform ios
 
 # When complete, download and install the .tar.gz
 # Then run:
-pnpm start --dev-client
+just mobile --dev-client
 ```
 
 #### For Android Emulator
@@ -61,7 +61,7 @@ eas build --profile development --platform android
 
 # When complete, download the APK and install on emulator
 # Then run:
-pnpm start --dev-client
+just mobile --dev-client
 ```
 
 #### For Physical Device
@@ -73,7 +73,7 @@ eas build --profile development --platform ios
 eas build --profile development --platform android
 
 # Install the app on your device, then:
-pnpm start --dev-client
+just mobile --dev-client
 ```
 
 ### EAS Configuration

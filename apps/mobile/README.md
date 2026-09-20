@@ -126,15 +126,15 @@ mobile/
 ### 1. Clone and Navigate
 
 ```bash
-cd /path/to/trapper/mobile
+cd /path/to/cartulary
 ```
+
+The `just` recipes below all run from the repo root.
 
 ### 2. Install Dependencies
 
 ```bash
-pnpm install
-# or
-npm install
+just install-js
 ```
 
 ### 3. Configure Backend URL
@@ -155,16 +155,16 @@ The app needs to connect to your Cartulary backend server. You can configure thi
 
 ```bash
 # Start Expo development server
-pnpm start
+just mobile
 
 # Run on iOS Simulator
-pnpm ios
+just ios
 
 # Run on Android Emulator
-pnpm android
+just android
 
 # Run on web (limited functionality)
-pnpm web
+just mobile-web
 ```
 
 ### Using Expo Go
@@ -175,7 +175,7 @@ pnpm web
 
 2. Start the development server:
    ```bash
-   pnpm start
+   just mobile
    ```
 
 3. Scan the QR code with your device camera (iOS) or Expo Go app (Android)
@@ -333,7 +333,7 @@ The app connects to the Cartulary FastAPI backend at the configured API URL. Req
 
 ```bash
 # Clear cache and restart
-pnpm start --clear
+just mobile-clean
 ```
 
 #### 2. Cannot Connect to Backend
@@ -354,13 +354,12 @@ pnpm start --clear
 
 ```bash
 # Reinstall dependencies
-rm -rf node_modules
-pnpm install
+just reinstall
 
 # Rebuild
-pnpm ios --clean
+just ios
 # or
-pnpm android --clean
+just android
 ```
 
 #### 5. TypeScript Errors
@@ -420,14 +419,11 @@ npx tsc --noEmit
 ## Testing
 
 ```bash
-# Run tests (when implemented)
-pnpm test
-
 # Type checking
-pnpm type-check
+just type-check-mobile
 
 # Linting
-pnpm lint
+just lint
 ```
 
 ## Contributing
