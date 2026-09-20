@@ -99,6 +99,45 @@ run only with `pytest --live` (`just test-live`).
 - Ollama needs the models pulled (`ollama pull minicpm-v`). `.env.example` lists the
   recommended model for each pass and the alternatives.
 
+## Processing
+
+A Document goes through **stages**: it is read (OCR), made searchable (embedding), then
+described (metadata extraction). That machine is `app/processing/`: every transition, and
+every stage's own rules, are decided there and nowhere else. Starting processing is not
+there yet — bare status strings and `.delay()` calls still sit in the API routes, the
+watchers and the intake service, and collapse into one entry point in a later slice.
+
+- `stages.py` is the machine and is **pure**: `ProcessingStatus` (a `StrEnum` whose seven
+  members are the exact strings stored in `documents.processing_status`, which is why the
+  column stays a `String` and no migration runs), the transition table
+  `next_stage(status, has_embedder, has_assistant) -> Stage | None`, and one function per
+  stage. It opens no session, enqueues nothing and reads no settings. The two booleans are
+  capabilities — a builder in the factory returned a model — never a `*_ENABLED` setting.
+- A stage function takes the inputs it needs plus the models it needs and returns a
+  **stage result**: the fields to write, the status to move to, the chunks or tags to
+  replace, and whether clients should hear the Document changed. It never writes anything.
+- `runner.py` is the plumbing: `engine.dispose()`, a fresh session, loading the Document,
+  asking the factory for the vision, formatter, assistant and embedder roles, calling the
+  stage, applying the result in one transaction, emitting the transition, enqueuing what
+  the machine says is next, and the error write. It imports no Celery and no tasks —
+  enqueueing is a callable passed in — so a test drives it with no broker.
+- Each Celery task in `app/tasks/document_tasks.py` is a two-line adapter naming its stage.
+  Task names are unchanged, so queued work survives a deploy. There is no `autoretry_for`.
+
+Rules the runner keeps, which nothing else may take over:
+
+- **The "from" state is read from the row**, in the same transaction as the write. No call
+  site passes a literal. A result that changes no status emits no status event and enqueues
+  nothing.
+- **Any stage that raises leaves the Document at `failed`** with `processing_error` set, and
+  emits that transition.
+
+See ADR 0006. Tests: `test_processing_machine.py` covers the table exhaustively with no
+fixtures, `test_processing_stages.py` runs the stage functions on the fakes in
+`tests/fakes.py`, and `test_processing_runner.py` runs the runner against the real
+PostgreSQL from the `db_session` fixture, because a mocked Session cannot say what landed
+in the row (ADR 0005).
+
 ## Capabilities
 
 OCR, embeddings, chat and metadata extraction are **capabilities**: each is on exactly when
@@ -111,9 +150,9 @@ its builder in `app/providers/factory.py` returns a model rather than `None`.
   written once, since nothing the caller sends can fix it.
 - A caller's own mistake still answers 4xx: regenerating embeddings for a document with no
   text stays 400.
-- Celery tasks ask the factory too: `_enqueue_next_after_ocr()` in
-  `app/tasks/document_tasks.py` chains a finished OCR onto embeddings, or straight to
-  metadata when there is no embedder.
+- Processing asks the factory too: the runner passes what the builders returned into
+  `next_stage()`, which chains a finished OCR onto embeddings, or straight to metadata when
+  there is no embedder.
 - `GET /api/v1/capabilities` (authenticated) reports all four capabilities from the same
   builders. Web fetches it once after login into `useCapabilityStore` (`packages/shared`) and
   hides what is off: the Chat nav entry, and the regenerate-embeddings/metadata actions on
