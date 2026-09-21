@@ -74,9 +74,11 @@ date. Read, write and admin rank in that order: a share grants every level below
 _Avoid_: permission, ACL
 
 **Live share**:
-A Share that has not expired, measured against the database clock. An expired Share
-grants nothing — it does not degrade to read. Whether a Share is live is decided in one
-place, so the documents listed as shared with you are exactly the ones you can reach.
+A Share that has not expired, measured against the database clock. Expiry is an instant,
+not a wall-clock reading, so it means the same moment wherever it was written. An expired
+Share grants nothing — it does not degrade to read. Whether a Share is live is decided in
+one place, so the documents listed as shared with you are exactly the ones you can reach.
+See ADR 0008.
 _Avoid_: active share, valid share
 
 **Public document**:

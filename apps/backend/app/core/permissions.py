@@ -44,15 +44,17 @@ def share_is_live() -> ColumnElement[bool]:
     Whether a Share has not expired.
 
     The one place expiry is decided. Measured against the database clock, so
-    every app container agrees on when a share ends; `expires_at` is a naive
-    timestamp, so `now()` is converted to UTC before the comparison.
+    every app container agrees on when a share ends. `expires_at` is
+    `timestamptz` and `now()` is an instant, so the comparison needs no zone
+    conversion and the database's own `TimeZone` setting cannot move it.
+    See ADR 0008.
 
     Returns:
         A boolean expression over `document_shares`
     """
     return or_(
         DocumentShare.expires_at.is_(None),
-        DocumentShare.expires_at > func.timezone("UTC", func.now()),
+        DocumentShare.expires_at > func.now(),
     )
 
 

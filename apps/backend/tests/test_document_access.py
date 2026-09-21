@@ -6,7 +6,7 @@ is asked the same question about the same fixture data, so a path that forgets
 the access filter fails here rather than in production. See ADR 0004 and 0005.
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pytest
@@ -327,3 +327,50 @@ class TestCanAccessDocument:
         assert permissions.can_access_document(
             world["root"], world["documents"]["private"], PermissionLevel.ADMIN
         )
+
+
+class TestShareExpiryIsAnInstant:
+    """
+    Expiry is a moment in time, not a wall-clock reading.
+
+    `expires_at` is `timestamptz`, so a share ends at the instant it names and
+    the database's own `TimeZone` setting cannot move it. These tests put the
+    session in a zone far from UTC, which is what a naive column would silently
+    read the value in. See ADR 0008.
+    """
+
+    def expiry_is_honoured(self, db_session, world, zone: str, expires_at) -> bool:
+        """Set a share's expiry with the session in `zone`; is its document reachable?"""
+        from sqlalchemy import text
+
+        db_session.execute(text("SELECT set_config('TimeZone', :zone, false)"), {"zone": zone})
+
+        share = (
+            db_session.query(DocumentShare)
+            .filter(DocumentShare.document_id == world["documents"]["expired"].id)
+            .one()
+        )
+        share.expires_at = expires_at
+        db_session.commit()
+
+        return "expired" in titles(
+            db_session.query(Document).filter(accessible_documents(world["reader"])).all()
+        )
+
+    def test_a_lapsed_share_stays_lapsed_east_of_utc(self, db_session, world):
+        """Kiritimati is UTC+14: read as wall clock, an hour ago reads as 13 hours hence."""
+        lapsed = datetime.now(timezone.utc) - timedelta(hours=1)
+
+        assert not self.expiry_is_honoured(db_session, world, "Pacific/Kiritimati", lapsed)
+
+    def test_a_live_share_stays_live_west_of_utc(self, db_session, world):
+        """Etc/GMT+11 is UTC-11: read as wall clock, an hour hence reads as 10 hours ago."""
+        still_live = datetime.now(timezone.utc) + timedelta(hours=1)
+
+        assert self.expiry_is_honoured(db_session, world, "Etc/GMT+11", still_live)
+
+    def test_an_offset_expiry_keeps_its_instant(self, db_session, world):
+        """A caller writing in their own zone gets the instant they wrote."""
+        lapsed = datetime.now(timezone(timedelta(hours=-5))) - timedelta(hours=1)
+
+        assert not self.expiry_is_honoured(db_session, world, "UTC", lapsed)

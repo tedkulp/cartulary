@@ -232,10 +232,18 @@ database clock) grants the level asked for. Superusers reach everything.
 access check — per-owner deduplication on upload and import — opts out with a trailing
 `# not an access check: <why>` comment.
 
+`document_shares.expires_at` is `timestamptz`, so a share ends at an instant and the
+Postgres server's `TimeZone` cannot move it: `share_is_live()` is `expires_at > now()` with
+no zone conversion, and an expiry sent to the sharing API without an offset is read as UTC
+at the schema, never further in. **A column storing a moment in time is
+`DateTime(timezone=True)`**; the rest of the schema is still naive `DateTime` and is not an
+access decision, so converting it is deliberate follow-up work rather than an oversight.
+See ADR 0008.
+
 Because the expression needs `is_superuser`, services take a `User`, not a `user_id`.
 Single-document checks go through `require_document_access(level)`, which asks
 `can_access_document`, which asks the same expression — so a list and a document detail can
-never disagree. Semantic search is ORM, not raw SQL, for this reason; see ADR 0004.
+never disagree. Semantic search is ORM, not raw SQL, for this reason; see ADR 0004 and 0008.
 
 ## Backend conventions
 

@@ -19,7 +19,8 @@ class DocumentShare(Base):
     shared_with_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     shared_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     permission_level = Column(String(20), nullable=False)  # read, write, admin
-    expires_at = Column(DateTime)
+    # timestamptz: a share ends at an instant, not at a wall-clock reading. See ADR 0008.
+    expires_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relationships
