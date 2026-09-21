@@ -62,6 +62,18 @@ A source file whose original bytes match a Document already in the same Owner's 
 The same bytes in another Owner's archive are not a duplicate.
 _Avoid_: copy, matching filename
 
+**Settled attachment**:
+An attachment of an imported email that needs nothing further: it was imported, it was
+already in the Owner's archive, or it is recorded as an import failure. A message is marked
+read or moved only when every attachment on it has settled. See ADR 0011.
+_Avoid_: processed attachment, handled attachment
+
+**Import failure**:
+An attachment an import source will never accept — bytes that can never become a Document —
+written down against the message it arrived on, so it is neither retried forever nor
+silently discarded.
+_Avoid_: error, rejected document
+
 **Accessible document**:
 A Document a User may act on at a given permission level — because they own it, because
 it is public (read only), or because a live share grants it. Superusers reach everything.

@@ -7,6 +7,7 @@ from app.models.document import (
     DocumentEmbedding,
     DocumentVersion,
 )
+from app.models.import_failure import ImportFailure
 from app.models.import_source import ImportSource
 from app.models.sharing import DocumentShare
 from app.models.tag import Category, Tag
@@ -23,6 +24,7 @@ __all__ = [
     "CustomField",
     "DocumentCustomField",
     "ImportSource",
+    "ImportFailure",
     "AuditLog",
     "Tag",
     "Category",

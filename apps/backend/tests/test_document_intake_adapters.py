@@ -6,11 +6,15 @@ from unittest.mock import MagicMock
 
 from app.core.exceptions import DuplicateError
 from app.workers.directory_watcher import _process_file
-from app.workers.imap_watcher import IMAPMailboxHandler
+from app.workers.imap_watcher import AttachmentOutcome, IMAPMailboxHandler
+
+
+MESSAGE_KEY = "<report@example.test>"
 
 
 def _source(**overrides):
     values = {
+        "id": uuid.uuid4(),
         "owner_id": uuid.uuid4(),
         "move_after_import": False,
         "move_to_path": None,
@@ -53,10 +57,11 @@ def test_imap_adapter_hands_attachment_to_intake() -> None:
     source = _source()
     intake = MagicMock()
     intake.intake.return_value = SimpleNamespace(id=uuid.uuid4())
-    handler = IMAPMailboxHandler(source, MagicMock(), intake)
+    handler = IMAPMailboxHandler(source, MagicMock(), intake, MagicMock())
 
-    handler.import_attachment("report.pdf", b"report")
+    outcome = handler.import_attachment("report.pdf", b"report", MESSAGE_KEY)
 
+    assert outcome is AttachmentOutcome.IMPORTED
     intake.intake.assert_called_once_with(
         content=b"report", filename="report.pdf", owner_id=source.owner_id
     )
@@ -67,6 +72,8 @@ def test_imap_adapter_treats_duplicate_as_handled() -> None:
     intake.intake.side_effect = DuplicateError(
         detail={"document_id": str(uuid.uuid4())}
     )
-    handler = IMAPMailboxHandler(_source(), MagicMock(), intake)
+    handler = IMAPMailboxHandler(_source(), MagicMock(), intake, MagicMock())
 
-    handler.import_attachment("report.pdf", b"report")
+    outcome = handler.import_attachment("report.pdf", b"report", MESSAGE_KEY)
+
+    assert outcome is AttachmentOutcome.DUPLICATE

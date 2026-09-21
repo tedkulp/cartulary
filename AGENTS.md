@@ -222,6 +222,48 @@ local, 1536 for OpenAI); nothing guesses it from the model name. Changing it nee
 
 See ADR 0003.
 
+## Importing
+
+Uploads, the directory watcher and the IMAP watcher are adapters around one seam:
+`DocumentIntakeService.intake(content, filename, owner_id, ...)` in
+`app/services/document_intake.py`. An adapter produces bytes, a filename and an Owner, and
+nothing else. `DuplicateError` means the archive already holds those bytes (ADR 0009) and
+every adapter treats it as handled. See ADR 0006.
+
+**An IMAP message is completed only when every attachment on it has settled.** The policy is
+`message_is_complete()` in `app/workers/imap_watcher.py`, over one `AttachmentOutcome` per
+attachment:
+
+- `IMPORTED` / `DUPLICATE` — a Document holds the bytes, or already did.
+- `REJECTED` — an `InvalidDocumentError`: these bytes can never become a Document, and a row
+  in `import_failures` records that. An attachment is only rejected **once the row exists**;
+  a record that could not be written defers instead.
+- `DEFERRED` — anything else. Nothing is flagged, copied or expunged, and the message stays
+  `UNSEEN` for the next pass.
+
+Retrying a whole message is safe because intake deduplicates: the attachments that landed
+come back as `DuplicateError`. **Do not add per-attachment progress tracking** — the checksum
+index is that record. Completing a message can fail too: a refused `UID COPY`, or a `\Deleted`
+flag the server would not set, leaves the message alone, and `EXPUNGE` runs only when a move
+happened. A pass that leaves any message behind says so in the source's `last_error` rather
+than clearing it, and leaves the source `ACTIVE`.
+
+**Fetch with `BODY.PEEK[]`, never `RFC822`.** A plain body fetch sets `\Seen`, which would
+complete every message the watcher merely read and lose every deferral. `complete_email()` is
+the only thing that flags a message; the fake mailbox in the tests flags `\Seen` on a
+non-PEEK fetch so that regression fails loudly.
+
+`ImportFailureService` (`app/services/import_failure_service.py`) is the only writer of
+`import_failures`. Identity is (import source, message, attachment checksum), where a message
+is its `Message-Id` or `uid:<UIDVALIDITY>:<UID>`; recording the same failure twice is
+harmless, because the unique index decides. The watcher uses `UID` commands throughout —
+sequence numbers are renumbered by an expunge. See ADR 0011.
+
+Tests: `test_imap_message_completion.py` covers the policy with a fake mailbox and no server,
+`test_import_failures.py` runs the recorder against the real PostgreSQL because the unique
+index is the point (ADR 0005), and `test_document_intake_adapters.py` pins what each adapter
+hands the seam.
+
 ## Document access
 
 "Which Documents can this user see" is answered once, by `accessible_documents(user, level)`
