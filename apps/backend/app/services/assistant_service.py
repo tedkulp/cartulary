@@ -61,16 +61,18 @@ class AssistantService:
 
         Returns:
             Dictionary containing extracted metadata
+
+        Raises:
+            ModelError: If the extraction call fails. It is not caught here: a
+                description that never reached the model is not an empty description,
+                and the stage is retried on it rather than recording nothing and
+                calling the Document described (ADR 0007). The reconciliation pass is
+                different, because it has the generated tags to fall back on.
         """
         # Step 1: Extract metadata without existing tags (no anchoring bias)
         prompt = self._build_extraction_prompt(text, filename)
 
-        try:
-            response_text = self._extract(prompt)
-        except ModelError as e:
-            logger.error(f"Failed to extract metadata with {self.model!r}: {e}")
-            return self._get_empty_metadata()
-
+        response_text = self._extract(prompt)
         metadata = self._parse_metadata_response(response_text)
         logger.info(f"Extracted metadata using {self.model!r}: {metadata}")
 

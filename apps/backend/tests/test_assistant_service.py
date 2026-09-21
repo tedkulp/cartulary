@@ -2,6 +2,9 @@
 import json
 from typing import Any, Dict
 
+import pytest
+
+from app.providers import ModelError
 from app.services.assistant_service import ANSWER_ERROR_TEXT, AssistantService
 from tests.fakes import ScriptedChatModel
 
@@ -58,12 +61,16 @@ class TestExtractMetadata:
 
         assert metadata == UNKNOWN_METADATA
 
-    def test_model_error_falls_back_to_unknown(self):
+    def test_a_provider_failure_is_raised_rather_than_read_as_an_empty_description(self):
+        """A description that never reached the model is not an empty description.
+
+        The stage is retried on the error instead of recording nothing and calling the
+        Document described. See ADR 0007.
+        """
         model = ScriptedChatModel(TimeoutError("no reply"))
 
-        metadata = AssistantService(model).extract_metadata("Some bill text")
-
-        assert metadata == UNKNOWN_METADATA
+        with pytest.raises(ModelError, match="no reply"):
+            AssistantService(model).extract_metadata("Some bill text")
 
     def test_sends_document_text_and_filename_deterministically(self):
         model = ScriptedChatModel(json.dumps(METADATA))

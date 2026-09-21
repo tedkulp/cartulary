@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from app.providers.ports import Message, ModelError
+from app.providers.ports import Message, ModelConfigurationError, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class GeminiChatModel:
     ) -> str:
         """Return the model's whole reply. Raises ModelError on any provider failure."""
         if any(message.images for message in messages):
-            raise ModelError(f"{self!r} does not accept images yet")
+            raise ModelConfigurationError(f"{self!r} does not accept images yet")
 
         system_texts = [m.content for m in messages if m.role == "system"]
         contents: List[Dict[str, Any]] = [
@@ -78,11 +78,11 @@ class GeminiChatModel:
     def _get_genai(self) -> Any:
         if self._genai is None:
             if not self.api_key:
-                raise ModelError("GEMINI_API_KEY is required for Gemini chat")
+                raise ModelConfigurationError("GEMINI_API_KEY is required for Gemini chat")
             try:
                 import google.generativeai as genai
             except ImportError as e:
-                raise ModelError(
+                raise ModelConfigurationError(
                     "Google Generative AI library not installed. "
                     "Install with: pip install google-generativeai"
                 ) from e

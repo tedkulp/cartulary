@@ -3,6 +3,7 @@ import hashlib
 import logging
 import re
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -18,6 +19,21 @@ logger = logging.getLogger(__name__)
 # langdetect is non-deterministic by default: the same text can yield different
 # results across calls. Seeding makes detection reproducible.
 DetectorFactory.seed = 0
+
+
+@dataclass(frozen=True)
+class PageRead:
+    """What reading one page came to: the text to keep, and the model failure if any.
+
+    The two are not exclusive. A page whose models failed still keeps its embedded
+    text, because one unreadable page should not lose the others; the error rides
+    along so the caller can tell a document that was read badly from one the models
+    never answered for at all. See ADR 0007.
+    """
+
+    text: Optional[str]
+    model_error: Optional[ModelError] = None
+
 
 # A page with less embedded text than this is sent to the vision model.
 MIN_EMBEDDED_TEXT_CHARS = 50
@@ -187,6 +203,12 @@ class OCRService:
 
         Returns:
             Extracted text or None if extraction failed
+
+        Raises:
+            ModelError: If no page that needed the models could be read by them. The
+                whole read is worth running again in that case, so it is raised for
+                the stage to be retried rather than reported as a document with no
+                text in it (ADR 0007).
         """
         file_path_obj = Path(file_path)
         if not file_path_obj.exists():
@@ -216,11 +238,9 @@ class OCRService:
             logger.error(f"Failed to read image {file_path}: {e}")
             return None
 
-        try:
-            return self._read_image(self.vision_model, image, refresh_cache=refresh_cache)
-        except ModelError as e:
-            logger.error(f"Vision OCR failed for {file_path}: {e}")
-            return None
+        # An image is one page, and it always needs the models: there is no embedded
+        # text to fall back on, so a provider failure is the whole read failing.
+        return self._read_image(self.vision_model, image, refresh_cache=refresh_cache)
 
     def _read_image(
         self, vision_model: ChatModel, image: bytes, refresh_cache: bool = False
@@ -232,14 +252,17 @@ class OCRService:
         Pass 2: Formatter model formats raw text into proper markdown
 
         A hit in the page cache replaces both passes. Text is only remembered when there
-        is some: an empty read says nothing worth keeping about the page.
+        is some, and when both passes ran as intended: an empty read says nothing worth
+        keeping about the page, and text that missed its formatting pass would be served
+        again under a key naming the formatter that never saw it.
 
         Raises:
-            ModelError: If either model fails
+            ModelError: If the vision model fails
         """
         cache = self.page_cache
         if cache is None:
-            return self._read_image_with_models(vision_model, image)
+            text, _ = self._read_image_with_models(vision_model, image)
+            return text
 
         key = _cache_key(image, vision_model, self.formatter_model)
         if refresh_cache:
@@ -250,18 +273,26 @@ class OCRService:
                 logger.info(f"Page cache hit: {len(cached)} chars, skipping both passes")
                 return cached
 
-        text = self._read_image_with_models(vision_model, image)
+        text, formatted = self._read_image_with_models(vision_model, image)
 
-        if text:
+        if text and formatted:
             cache.set(key, text)
 
         return text
 
-    def _read_image_with_models(self, vision_model: ChatModel, image: bytes) -> str:
+    def _read_image_with_models(
+        self, vision_model: ChatModel, image: bytes
+    ) -> Tuple[str, bool]:
         """Both OCR passes over one image, with no page cache in the way.
 
+        Returns:
+            The page's text, and whether it came out of the passes the caller asked
+            for. A page whose formatter failed is still read, but is not text worth
+            remembering.
+
         Raises:
-            ModelError: If either model fails
+            ModelError: If the vision model fails. Pass 1 is the read; without it
+                there is no page. A pass 2 that fails is worked around (ADR 0007).
         """
         # PASS 1: Extract raw text with vision model
         logger.info(f"Pass 1: Calling vision model {vision_model!r} for raw text extraction")
@@ -276,22 +307,30 @@ class OCRService:
 
         if len(raw_text.strip()) < MIN_VISION_TEXT_CHARS:
             logger.warning("Pass 1 returned insufficient text, skipping Pass 2")
-            return raw_text.strip()
+            return raw_text.strip(), True
 
         if self.formatter_model is None:
             logger.info("No formatter model, skipping Pass 2")
-            return raw_text.strip()
+            return raw_text.strip(), True
 
         # PASS 2: Format raw text into proper markdown
         logger.info(
             f"Pass 2: Calling formatter model {self.formatter_model!r} for markdown formatting"
         )
-        formatted_text = self.formatter_model.chat(
-            [
-                Message(role="system", content=FORMATTER_SYSTEM_PROMPT),
-                Message(role="user", content=FORMATTER_PROMPT.format(raw_text=raw_text)),
-            ]
-        )
+        try:
+            formatted_text = self.formatter_model.chat(
+                [
+                    Message(role="system", content=FORMATTER_SYSTEM_PROMPT),
+                    Message(role="user", content=FORMATTER_PROMPT.format(raw_text=raw_text)),
+                ]
+            )
+        except ModelError as e:
+            # Pass 1 read the page; only its formatting is missing. That is a failure
+            # this page can work around, so the raw text stands rather than losing a
+            # read the vision model already paid for (ADR 0007). It is not cached: the
+            # next attempt should format it, not be served this.
+            logger.error(f"Pass 2 failed, keeping the raw text pass 1 read: {e}")
+            return raw_text.strip(), False
 
         logger.info(f"Pass 2 complete: Formatted to {len(formatted_text)} chars")
         logger.info("--- BEGIN FORMATTED TEXT ---")
@@ -304,7 +343,7 @@ class OCRService:
         logger.info(final_text)
         logger.info("--- END FINAL OUTPUT ---")
 
-        return final_text
+        return final_text, True
 
     def _extract_text_from_pdf(
         self, pdf_path: str, force_ocr: bool = False, refresh_cache: bool = False
@@ -320,6 +359,9 @@ class OCRService:
 
         Returns:
             Extracted text from all pages
+
+        Raises:
+            ModelError: If every page that needed the models failed on them
         """
         logger.info(f"Starting PDF text extraction for: {pdf_path}")
 
@@ -337,7 +379,14 @@ class OCRService:
         page_text: List[Optional[str]] = [None] * page_count
         # Pages submitted for OCR but not yet collected, by the page index each fills. Never
         # larger than page_concurrency, so no more rendered images than that are held at once.
-        in_flight: Dict[Future[Optional[str]], int] = {}
+        in_flight: Dict[Future[PageRead], int] = {}
+        # How many pages went to the models, how many of those the models read, and the
+        # failures they gave. Counting the reads rather than comparing the failures with
+        # what was sent keeps a page dropped for some other reason from standing in for
+        # one the models answered.
+        sent_to_models = 0
+        read_by_models = 0
+        model_errors: List[ModelError] = []
 
         def collect_finished() -> None:
             """Store every page that has finished, waiting for at least one to.
@@ -349,13 +398,20 @@ class OCRService:
             for future in done:
                 index = in_flight.pop(future)
                 try:
-                    page_text[index] = future.result()
+                    read = future.result()
                 except RuntimeError as e:
                     # Whatever went wrong on the worker, one page shouldn't lose the others
                     logger.error(
                         f"Failed to OCR page {index + 1} of {pdf_path}: {type(e).__name__}: {e}",
                         exc_info=True,
                     )
+                    continue
+                page_text[index] = read.text
+                if read.model_error is not None:
+                    model_errors.append(read.model_error)
+                else:
+                    nonlocal read_by_models
+                    read_by_models += 1
 
         vision_model = self.vision_model
 
@@ -383,6 +439,7 @@ class OCRService:
                         exc_info=True,
                     )
                     continue
+                sent_to_models += 1
                 in_flight[
                     pool.submit(
                         self._ocr_page,
@@ -417,6 +474,19 @@ class OCRService:
 
         if missing_pages:
             logger.warning(f"Missing {len(missing_pages)} pages: {missing_pages}")
+
+        if sent_to_models and read_by_models == 0 and model_errors:
+            # Not one page the models were asked about came back, and the models are
+            # what failed. That is them being unreachable far more often than it is a
+            # document of blank pages, so it is raised for the stage to try again
+            # rather than written down as a document nothing could be read from
+            # (ADR 0007). What embedded text there was is dropped with it: a later
+            # attempt reads the file from the start, and the page cache makes the
+            # pages that did work cheap.
+            raise ModelError(
+                f"No page of {pdf_path} could be read by the models "
+                f"({sent_to_models} attempted): {model_errors[-1]}"
+            )
 
         return total_text
 
@@ -463,24 +533,26 @@ class OCRService:
         page_number: int,
         embedded_text: Optional[str],
         refresh_cache: bool = False,
-    ) -> Optional[str]:
+    ) -> PageRead:
         """Read one rendered page, falling back to its embedded text if the models fail.
 
         Runs on a worker thread, one page per worker, so it touches nothing but its
         arguments, the models and the page cache, which several workers may share.
+        The failure is reported alongside the fallback rather than swallowed: it is
+        still this page's own business, but the caller counts them.
         """
         try:
             vision_text = self._read_image(vision_model, image, refresh_cache=refresh_cache)
         except ModelError as e:
             logger.error(f"Page {page_number}: Vision OCR failed: {e}")
-            return embedded_text
+            return PageRead(embedded_text, model_error=e)
 
         if vision_text:
             logger.info(f"Page {page_number}: Vision OCR extracted {len(vision_text)} characters")
-            return vision_text
+            return PageRead(vision_text)
 
         logger.warning(f"Page {page_number}: Vision OCR returned None or empty text")
-        return embedded_text
+        return PageRead(embedded_text)
 
     def detect_language(self, text: str) -> str:
         """

@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from app.providers.ports import Message, ModelError
+from app.providers.ports import Message, ModelConfigurationError, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -12,11 +12,13 @@ EMBEDDING_BATCH_SIZE = 100
 
 def _new_client(api_key: Optional[str], base_url: Optional[str], timeout: float, purpose: str) -> Any:
     if not api_key:
-        raise ModelError(f"OPENAI_API_KEY is required for OpenAI {purpose}")
+        raise ModelConfigurationError(f"OPENAI_API_KEY is required for OpenAI {purpose}")
     try:
         from openai import OpenAI
     except ImportError as e:
-        raise ModelError("OpenAI library not installed. Install with: pip install openai") from e
+        raise ModelConfigurationError(
+            "OpenAI library not installed. Install with: pip install openai"
+        ) from e
     # No retries here: the Celery tasks already retry failed work.
     return OpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
 
@@ -53,7 +55,7 @@ class OpenAIChatModel:
     ) -> str:
         """Return the model's whole reply. Raises ModelError on any provider failure."""
         if any(message.images for message in messages):
-            raise ModelError(f"{self!r} does not accept images yet")
+            raise ModelConfigurationError(f"{self!r} does not accept images yet")
 
         options: Dict[str, Any] = {}
         if temperature is not None:

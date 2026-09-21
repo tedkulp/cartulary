@@ -55,8 +55,12 @@ false. With no vision model, PDFs use embedded text only and images yield nothin
 formatter model, pass 2 is skipped. A model request that gets no response for
 `MODEL_TIMEOUT_SECONDS` (default 300) fails; the Ollama adapter streams, so this bounds each
 silence rather than the whole reply. Any provider failure, including a timeout, surfaces as
-`ModelError`, which OCR catches per page (the page keeps its embedded text, if any). See
-ADR 0001.
+`ModelError`, or `ModelConfigurationError` when the fault is this deployment's — no key, no
+SDK — which is a `ModelError` that is never retried. OCR catches one per page (the page keeps
+its embedded text, if any) and one from pass 2 alone (the page keeps the raw text pass 1 read,
+and is not cached), but a read the models read **no** page of raises instead — that is the
+models being away, not a document of blank pages, and the stage retries on it (ADR 0007). An
+image is always that case: one page, no embedded text to fall back on. See ADR 0001.
 
 **Page cache**: with `OCR_PAGE_CACHE_ENABLED` (default true), each page's finished OCR text
 is remembered in Redis under a key covering the page image, both models and both prompts, so
@@ -120,8 +124,29 @@ every stage's own rules, are decided there and nowhere else. Starting one is
   stage, applying the result in one transaction, emitting the transition, enqueuing what
   the machine says is next, and the error write. It imports no Celery and no tasks —
   enqueueing is a callable passed in — so a test drives it with no broker.
-- Each Celery task in `app/tasks/document_tasks.py` is a two-line adapter naming its stage.
-  Task names are unchanged, so queued work survives a deploy. There is no `autoretry_for`.
+- Each Celery task in `app/tasks/document_tasks.py` is a two-line adapter naming its stage
+  and handing over `_plumbing(self)`: the queue, this attempt's number and `self.retry`.
+  Task names are unchanged, so queued work survives a deploy. There is no `autoretry_for`:
+  what is worth retrying is decided per caught exception, not by a decorator.
+- `retry.py` is the retry policy and is **pure**: `worth_retrying(error)` — true for
+  `ModelError`, but not for its `ModelConfigurationError` subclass, and nothing else — and
+  `retry_delay(attempt)`, which walks `RETRY_DELAYS` (10s, 60s, 300s) and returns None once
+  it is spent. The runner asks both, then calls the `retry` callable the task handed it,
+  which raises; **the runner never imports Celery**. With no `retry` callable every failure
+  is terminal, which is how tests drive the path with no broker.
+- Because a pending retry is written nowhere, the queued message is the only record of it,
+  so `task_acks_late` and `task_reject_on_worker_lost` are on in `celery_app.py`. Don't turn
+  them off: a worker restarted mid-countdown would otherwise strand the Document at
+  `processing`. A stage may therefore be redelivered and run twice, which is safe — each
+  writes once, at the end, in one transaction.
+- **A Document waiting on a retry is not `failed`.** Nothing is written: it keeps the status
+  it had, emits no event, and the transaction is rolled back. Only an exhausted schedule
+  writes `failed` with `processing_error`. Do not add a `retrying` status; see ADR 0007.
+- A `ModelError` a stage can work around is absorbed — a page that failed beside pages that
+  read, tags that could not be reconciled against the ones the archive has. One that leaves
+  the stage with nothing to show is raised, so it can be retried. That is why
+  `AssistantService.extract_metadata` no longer turns a provider failure into empty
+  metadata: a Document no model ever saw must not read `llm_complete`.
 - `queue.py` is the one entry point: `enqueue_stage(document_id, stage, **options)` names
   the task a stage is queued as, returns the Celery result (the reprocess and regenerate
   routes answer with its `task_id`), and refuses an option the stage does not take —
@@ -148,14 +173,16 @@ Rules the runner keeps, which nothing else may take over:
   site passes a literal. A result that changes no status emits no status event and enqueues
   nothing.
 - **Any stage that raises leaves the Document at `failed`** with `processing_error` set, and
-  emits that transition.
+  emits that transition — unless the failure is a `ModelError` with an attempt left, in
+  which case nothing is written at all and the stage is run again.
 
-See ADR 0006. Tests: `test_processing_machine.py` covers the table exhaustively with no
-fixtures, `test_processing_stages.py` runs the stage functions on the fakes in
-`tests/fakes.py`, `test_chunking.py` covers the chunking rules and the input that used to
-hang, and `test_processing_runner.py` runs the runner against the real
-PostgreSQL from the `db_session` fixture, because a mocked Session cannot say what landed
-in the row (ADR 0005).
+See ADR 0006 and ADR 0007. Tests: `test_processing_machine.py` covers the table exhaustively
+with no fixtures, `test_processing_retry.py` does the same for the retry policy,
+`test_processing_stages.py` runs the stage functions on the fakes in `tests/fakes.py`,
+`test_chunking.py` covers the chunking rules and the input that used to hang,
+`test_document_tasks.py` pins what a task hands the runner, and `test_processing_runner.py`
+runs the runner — including every retry path — against the real PostgreSQL from the
+`db_session` fixture, because a mocked Session cannot say what landed in the row (ADR 0005).
 
 ## Capabilities
 

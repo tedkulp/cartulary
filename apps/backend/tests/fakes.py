@@ -69,6 +69,28 @@ class FakeEmbedder:
         return values[: self._dimension]
 
 
+class FailingEmbedder(FakeEmbedder):
+    """Embedder that raises instead of embedding, for the failure and retry paths.
+
+    The error is raised as given, so a test picks whether the stage sees a provider
+    failure worth retrying or something terminal.
+    """
+
+    def __init__(
+        self,
+        error: Exception,
+        dimension: int = 8,
+        model_name: str = "failing-embedder",
+    ) -> None:
+        super().__init__(dimension, model_name)
+        self._error = error
+        self.calls = 0
+
+    def embed(self, texts: Sequence[str]) -> List[List[float]]:
+        self.calls += 1
+        raise self._error
+
+
 class FakeJsonEndpoint:
     """A local HTTP server that answers every POST with one JSON payload and records requests.
 

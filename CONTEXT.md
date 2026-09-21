@@ -104,7 +104,9 @@ _Avoid_: step, phase, job, task
 **Processing status**:
 Where a Document is in processing, stored on the row and the only record of it. One of
 seven: pending, processing, ocr_complete, ocr_failed, embedding_complete, llm_complete,
-failed. Nothing infers it from what the Document holds. See ADR 0006.
+failed. Nothing infers it from what the Document holds. A stage waiting on a retry writes
+nothing, so a Document between attempts still reads the status it had. See ADR 0006 and
+ADR 0007.
 _Avoid_: state, processing state
 
 **Processing status group**:

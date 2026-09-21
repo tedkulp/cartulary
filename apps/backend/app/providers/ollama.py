@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Sequence
 
-from app.providers.ports import Message, ModelError
+from app.providers.ports import Message, ModelConfigurationError, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,9 @@ def _new_client(host: str, timeout: float) -> Any:
     try:
         import ollama
     except ImportError as e:
-        raise ModelError("Ollama library not installed. Install with: pip install ollama") from e
+        raise ModelConfigurationError(
+            "Ollama library not installed. Install with: pip install ollama"
+        ) from e
     # Extra kwargs are passed through to the underlying httpx client.
     return ollama.Client(host=host, timeout=timeout)
 

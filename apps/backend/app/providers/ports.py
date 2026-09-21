@@ -10,7 +10,20 @@ Role = Literal["system", "user", "assistant"]
 
 
 class ModelError(Exception):
-    """Any provider failure: unreachable host, missing SDK, timeout or bad response."""
+    """Any provider failure: unreachable host, missing SDK, timeout or bad response.
+
+    Processing treats this as worth another attempt, because most of the class is
+    transient. Raise `ModelConfigurationError` for the part that is not.
+    """
+
+
+class ModelConfigurationError(ModelError):
+    """A provider failure this deployment is configured into: no key, no SDK, no support.
+
+    Still a `ModelError`, so every caller that handles one handles this, but it will
+    read exactly the same on the fourth attempt as on the first, so processing does not
+    retry it and fails the Document at once with the operator's answer in it (ADR 0007).
+    """
 
 
 @dataclass(frozen=True)

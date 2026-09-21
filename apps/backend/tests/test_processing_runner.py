@@ -19,8 +19,10 @@ from app.models.document import Document, DocumentEmbedding
 from app.models.tag import Tag
 from app.models.user import User
 from app.processing import ProcessingStatus, Stage
+from app.processing.retry import RETRY_DELAYS
 from app.processing.runner import Models, run_stage
-from tests.fakes import FakeEmbedder, ScriptedChatModel
+from app.providers import ModelError
+from tests.fakes import FailingEmbedder, FakeEmbedder, ScriptedChatModel
 
 DIMENSION = settings.EMBEDDING_DIMENSION
 METADATA_REPLY = (
@@ -338,11 +340,8 @@ class TestEmbeddingStage:
             db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
         )
 
-        class FailingEmbedder(FakeEmbedder):
-            def embed(self, texts):
-                raise RuntimeError("embedder unreachable")
-
-        models = Models(embedder=FailingEmbedder(DIMENSION))
+        error = RuntimeError("embedder unreachable")
+        models = Models(embedder=FailingEmbedder(error, DIMENSION))
         run(doc, Stage.EMBEDDING, session_factory, enqueue, models)
 
         db_session.refresh(doc)
@@ -539,3 +538,167 @@ class TestUnknownDocument:
         )
 
         assert result["status"] == "error"
+
+
+class Retried(Exception):
+    """What a retrying caller raises: Celery's `self.retry` in every way that matters here."""
+
+    def __init__(self, error: BaseException, countdown: int) -> None:
+        super().__init__(f"retrying in {countdown}s after {error}")
+        self.error = error
+        self.countdown = countdown
+
+
+@pytest.fixture
+def retry():
+    """A caller that retries, as the Celery adapter does: it raises rather than returning."""
+
+    def _retry(error: BaseException, countdown: int):
+        raise Retried(error, countdown)
+
+    return _retry
+
+
+class TestRetryingAModelFailure:
+    """A stage that failed on a model comes round again; anything else is terminal.
+
+    What the Document reads between attempts is the point of most of these: nothing is
+    written, so it keeps the status it already had. See ADR 0007.
+    """
+
+    def test_a_model_failure_is_handed_back_to_the_caller_to_retry(
+        self, db_session, session_factory, owner, events, enqueue, queue, retry
+    ) -> None:
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        models = Models(embedder=FailingEmbedder(ModelError("connection refused"), DIMENSION))
+
+        with pytest.raises(Retried) as raised:
+            run(doc, Stage.EMBEDDING, session_factory, enqueue, models, retry=retry)
+
+        assert raised.value.countdown == 10
+        assert isinstance(raised.value.error, ModelError)
+
+    def test_a_document_waiting_on_a_retry_keeps_the_status_it_had(
+        self, db_session, session_factory, owner, events, enqueue, queue, retry
+    ) -> None:
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        models = Models(embedder=FailingEmbedder(ModelError("connection refused"), DIMENSION))
+
+        with pytest.raises(Retried):
+            run(doc, Stage.EMBEDDING, session_factory, enqueue, models, retry=retry)
+
+        db_session.refresh(doc)
+        assert doc.processing_status == ProcessingStatus.OCR_COMPLETE
+        assert doc.processing_error is None
+        assert transitions(events) == []
+        assert queue == []
+
+    def test_a_document_read_by_a_model_that_went_away_waits_at_processing(
+        self, db_session, session_factory, owner, events, enqueue, queue, retry, read_file
+    ) -> None:
+        doc = make_document(db_session, owner)
+
+        with patch.multiple(
+            "app.services.ocr_service.OCRService",
+            extract_text=MagicMock(side_effect=ModelError("no page could be read")),
+        ):
+            with pytest.raises(Retried):
+                run(doc, Stage.OCR, session_factory, enqueue, BOTH_ON(), retry=retry)
+
+        db_session.refresh(doc)
+        assert doc.processing_status == ProcessingStatus.PROCESSING
+        assert transitions(events) == [("pending", "processing")]
+
+    def test_each_attempt_waits_longer_than_the_one_before(
+        self, db_session, session_factory, owner, events, enqueue, retry
+    ) -> None:
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        embedder = FailingEmbedder(ModelError("connection refused"), DIMENSION)
+        models = Models(embedder=embedder)
+
+        waits = []
+        for attempt in range(len(RETRY_DELAYS)):
+            with pytest.raises(Retried) as raised:
+                run(
+                    doc, Stage.EMBEDDING, session_factory, enqueue, models,
+                    retry=retry, attempt=attempt,
+                )
+            waits.append(raised.value.countdown)
+
+        assert waits == list(RETRY_DELAYS)
+        # Every attempt really ran the stage, rather than the schedule being walked
+        # by a runner that had already given up on reaching the model.
+        assert embedder.calls == len(RETRY_DELAYS)
+
+    def test_a_schedule_that_is_spent_leaves_the_document_failed(
+        self, db_session, session_factory, owner, events, enqueue, retry
+    ) -> None:
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        models = Models(embedder=FailingEmbedder(ModelError("connection refused"), DIMENSION))
+
+        result = run(
+            doc, Stage.EMBEDDING, session_factory, enqueue, models,
+            retry=retry, attempt=len(RETRY_DELAYS),
+        )
+
+        db_session.refresh(doc)
+        assert result["status"] == "error"
+        assert doc.processing_status == ProcessingStatus.FAILED
+        assert doc.processing_error == "Embedding generation failed: connection refused"
+        assert transitions(events) == [("ocr_complete", "failed")]
+
+    def test_a_failure_that_is_not_a_model_failure_is_terminal_on_the_first_try(
+        self, db_session, session_factory, owner, events, enqueue, retry
+    ) -> None:
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        models = Models(embedder=FailingEmbedder(RuntimeError("a bad row"), DIMENSION))
+
+        result = run(doc, Stage.EMBEDDING, session_factory, enqueue, models, retry=retry)
+
+        db_session.refresh(doc)
+        assert result["status"] == "error"
+        assert doc.processing_status == ProcessingStatus.FAILED
+        assert transitions(events) == [("ocr_complete", "failed")]
+
+    def test_describing_a_document_retries_on_a_model_too(
+        self, db_session, session_factory, owner, events, enqueue, retry
+    ) -> None:
+        doc = make_document(
+            db_session,
+            owner,
+            status=ProcessingStatus.EMBEDDING_COMPLETE,
+            ocr_text="Some text",
+        )
+        models = Models(assistant=ScriptedChatModel(ModelError("rate limited")))
+
+        with pytest.raises(Retried) as raised:
+            run(doc, Stage.METADATA, session_factory, enqueue, models, retry=retry)
+
+        db_session.refresh(doc)
+        assert raised.value.countdown == RETRY_DELAYS[0]
+        assert doc.processing_status == ProcessingStatus.EMBEDDING_COMPLETE
+
+    def test_a_caller_that_cannot_retry_leaves_every_failure_terminal(
+        self, db_session, session_factory, owner, events, enqueue
+    ) -> None:
+        """The runner never retries on its own: running it again is the caller's to do."""
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.OCR_COMPLETE, ocr_text="Some text"
+        )
+        models = Models(embedder=FailingEmbedder(ModelError("connection refused"), DIMENSION))
+
+        result = run(doc, Stage.EMBEDDING, session_factory, enqueue, models)
+
+        db_session.refresh(doc)
+        assert result["status"] == "error"
+        assert doc.processing_status == ProcessingStatus.FAILED

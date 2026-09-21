@@ -83,10 +83,74 @@ class TestExtractTextFromPdf:
         assert len(vision.calls) == 1
 
     def test_force_ocr_failure_does_not_fall_back_to_embedded_text(self, tmp_path):
-        """When forced OCR fails, the page yields nothing rather than its embedded text."""
+        """When forced OCR fails, the read fails rather than quietly yielding embedded text.
+
+        The one page the models were asked about is the whole document, so this is a
+        read the models answered nothing for, and the stage retries on it (ADR 0007).
+        """
         service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
 
-        assert service.extract_text(make_pdf(tmp_path, [LONG_TEXT]), force_ocr=True) == ""
+        with pytest.raises(ModelError, match="No page"):
+            service.extract_text(make_pdf(tmp_path, [LONG_TEXT]), force_ocr=True)
+
+    def test_no_page_the_models_were_asked_about_could_be_read(self, tmp_path):
+        """Every OCR'd page failing is the models being away, not a textless document."""
+        vision = ScriptedChatModel(ModelError("connection refused"), ModelError("still away"))
+        service = OCRService(vision_model=vision)
+
+        with pytest.raises(ModelError, match="2 attempted"):
+            service.extract_text(make_pdf(tmp_path, [None, None]))
+
+    def test_one_page_reading_is_enough_to_keep_the_document(self, tmp_path):
+        """A read the models answered for at all is a read, and the failures stay per-page."""
+        vision = ScriptedChatModel(ModelError("model went away"), VISION_TEXT)
+        service = OCRService(vision_model=vision)
+
+        assert service.extract_text(make_pdf(tmp_path, [None, None])) == VISION_TEXT
+
+    def test_pages_the_models_were_never_asked_about_do_not_rescue_the_read(self, tmp_path):
+        """Embedded text is not an answer from a model that never answered.
+
+        It is dropped with the rest: a retry re-reads the file from the start, and a
+        document left at `ocr_complete` missing its only scanned page is a worse lie
+        than one left waiting.
+        """
+        service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
+
+        with pytest.raises(ModelError, match="1 attempted"):
+            service.extract_text(make_pdf(tmp_path, [LONG_TEXT, None]))
+
+    def test_a_page_dropped_for_another_reason_does_not_stand_in_for_one_the_models_read(
+        self, tmp_path, monkeypatch
+    ):
+        """One page lost to a worker error must not make an all-failed read look partial.
+
+        The read would otherwise land at `ocr_failed` saying no text could be extracted,
+        which is the false report ADR 0007 exists to prevent.
+        """
+        from app.services import ocr_service as module
+
+        pdf = make_pdf(tmp_path, [None, None])
+        calls = {"n": 0}
+        real = module.OCRService._ocr_page
+
+        def one_page_dies(self, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("the worker fell over")
+            return real(self, *args, **kwargs)
+
+        monkeypatch.setattr(module.OCRService, "_ocr_page", one_page_dies)
+        service = OCRService(vision_model=ScriptedChatModel(ModelError("connection refused")))
+
+        with pytest.raises(ModelError, match="No page"):
+            service.extract_text(pdf)
+
+    def test_a_document_no_page_of_which_needs_the_models_never_fails_on_one(self, tmp_path):
+        """With nothing sent to the models, there is no model failure to report."""
+        service = OCRService(vision_model=ScriptedChatModel())
+
+        assert LONG_TEXT in service.extract_text(make_pdf(tmp_path, [LONG_TEXT, LONG_TEXT]))
 
     def test_short_vision_output_skips_formatter(self, tmp_path):
         """Vision output under 10 chars is used as-is, without calling the formatter."""
@@ -97,6 +161,32 @@ class TestExtractTextFromPdf:
 
         assert text == "tiny"
         assert formatter.calls == []
+
+    def test_a_formatter_that_fails_keeps_the_text_pass_one_read(self, tmp_path):
+        """Only the formatting is missing, so the read stands rather than being thrown away.
+
+        Retrying the whole page would pay for the vision pass again to get back what it
+        has already produced. See ADR 0007.
+        """
+        service = OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT),
+            formatter_model=ScriptedChatModel(ModelError("formatter not pulled")),
+        )
+
+        assert service.extract_text(make_pdf(tmp_path, [None])) == VISION_TEXT
+
+    def test_every_page_losing_only_its_formatter_is_still_a_read(self, tmp_path):
+        """Pass 1 read both pages, so nothing here is a read the models answered nothing for."""
+        service = OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT, VISION_TEXT),
+            formatter_model=ScriptedChatModel(
+                ModelError("formatter not pulled"), ModelError("still not pulled")
+            ),
+        )
+
+        text = service.extract_text(make_pdf(tmp_path, [None, None]))
+
+        assert text == f"{VISION_TEXT}\n\n{VISION_TEXT}"
 
     def test_no_formatter_model_returns_raw_vision_text(self, tmp_path):
         """With no formatter model, pass 2 is skipped."""
@@ -149,11 +239,16 @@ class TestExtractTextFromImage:
         """With no vision model, images yield nothing."""
         assert ocr_service.extract_text(image_path) is None
 
-    def test_model_error_yields_nothing(self, image_path):
-        """A vision failure on an image is reported as no text, not raised."""
+    def test_a_model_failure_is_raised_for_the_stage_to_retry(self, image_path):
+        """An image is one page that always needs the models: their failure is the read's.
+
+        There is no embedded text to fall back on, so reporting no text would say the
+        image is blank when nobody ever looked at it. See ADR 0007.
+        """
         service = OCRService(vision_model=ScriptedChatModel(ModelError("timed out")))
 
-        assert service.extract_text(image_path) is None
+        with pytest.raises(ModelError, match="timed out"):
+            service.extract_text(image_path)
 
 
 class TestFormatterOutputCleanup:
@@ -483,6 +578,23 @@ class TestPageCache:
 
         assert service.extract_text(pdf) == "# Other markdown"
         assert len(other_formatter.calls) == 1
+
+    def test_a_page_that_missed_its_formatting_is_not_remembered(self, tmp_path):
+        """The key names the formatter, so caching text it never saw would serve it later.
+
+        The page is still used — pass 1 read it — but the next attempt should get the
+        formatting rather than this. See ADR 0007.
+        """
+        cache = FakePageCache()
+        pdf = make_pdf(tmp_path, [SHORT_TEXT])
+        service = OCRService(
+            vision_model=ScriptedChatModel(VISION_TEXT),
+            formatter_model=ScriptedChatModel(ModelError("formatter not pulled")),
+            page_cache=cache,
+        )
+
+        assert service.extract_text(pdf) == VISION_TEXT
+        assert cache.sets == []
 
     def test_refresh_cache_re_reads_the_page_and_replaces_the_entry(self, tmp_path):
         """A caller asking for fresh output gets it, and later callers get it too."""

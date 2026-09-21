@@ -292,11 +292,10 @@ class TestRunMetadata:
         assert result.status is None
         assert result.info == {"reason": "No text content"}
 
-    def test_a_model_that_cannot_answer_leaves_every_field_alone(self) -> None:
-        """AssistantService turns a provider failure into empty metadata, not an error,
-        so a document nothing could be said about still finishes rather than failing."""
-        result = self._run(ScriptedChatModel(ModelError("assistant unreachable")))
+    def test_a_model_that_could_not_be_reached_raises_for_the_runner_to_retry(self) -> None:
+        """A provider failure comes out as the ModelError it is, not as empty metadata.
 
-        assert result.status is ProcessingStatus.LLM_COMPLETE
-        assert result.fields == {}
-        assert result.tags is None
+        Writing `llm_complete` with nothing extracted would call a Document described
+        that no model ever saw, and leave it there. See ADR 0007."""
+        with pytest.raises(ModelError, match="assistant unreachable"):
+            self._run(ScriptedChatModel(ModelError("assistant unreachable")))

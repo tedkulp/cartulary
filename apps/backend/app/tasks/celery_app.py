@@ -25,6 +25,15 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=30 * 60,  # 30 minutes
     task_soft_time_limit=25 * 60,  # 25 minutes
+    # A retry writes nothing to the Document (ADR 0007), so the queued message is the
+    # only record that the work is still outstanding. Acking on receipt would lose a
+    # retry waiting out its countdown whenever a worker restarts, leaving the Document
+    # reading `processing` with nothing left to move it. Acking late puts it back on
+    # the broker instead. Redelivery costs a re-run of a stage that may be part done,
+    # which every stage tolerates: each writes once, at the end, and OCR's page cache
+    # makes a second read cheap.
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
 )
 
 

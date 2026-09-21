@@ -2,7 +2,7 @@
 import logging
 from typing import Any, List, Sequence
 
-from app.providers.ports import ModelError
+from app.providers.ports import ModelConfigurationError, ModelError
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class LocalEmbedder:
             try:
                 from sentence_transformers import SentenceTransformer
             except ImportError as e:
-                raise ModelError(
+                raise ModelConfigurationError(
                     "sentence-transformers not installed. "
                     "Install with: pip install sentence-transformers"
                 ) from e

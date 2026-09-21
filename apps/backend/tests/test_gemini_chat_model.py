@@ -6,7 +6,7 @@ contract tests talk to Gemini and only run with `pytest --live`.
 import pytest
 
 from app.config import settings
-from app.providers import Message, ModelError
+from app.providers import Message, ModelConfigurationError, ModelError
 from app.providers.gemini import GeminiChatModel
 from tests.fakes import FakeJsonEndpoint
 
@@ -83,10 +83,10 @@ class TestGeminiChatModel:
 class TestGeminiChatModelFailures:
     """Every provider failure surfaces as ModelError."""
 
-    def test_missing_api_key_raises_model_error(self):
+    def test_missing_api_key_raises_a_configuration_error(self):
         model = GeminiChatModel(api_key=None, model="gemini-test", timeout=5)
 
-        with pytest.raises(ModelError, match="GEMINI_API_KEY"):
+        with pytest.raises(ModelConfigurationError, match="GEMINI_API_KEY"):
             model.chat([Message(role="user", content="hello")])
 
     def test_blocked_reply_raises_model_error(self):
@@ -127,10 +127,10 @@ class TestGeminiChatModelFailures:
         with pytest.raises(ModelError):
             model.chat([Message(role="user", content="hello")])
 
-    def test_images_raise_model_error(self):
+    def test_images_raise_a_configuration_error(self):
         model = GeminiChatModel(api_key="k", model="gemini-test", timeout=5)
 
-        with pytest.raises(ModelError, match="images"):
+        with pytest.raises(ModelConfigurationError, match="images"):
             model.chat([Message(role="user", content="Read this.", images=[b"\x89PNG"])])
 
 

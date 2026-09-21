@@ -6,12 +6,18 @@ from the row, and enqueues whatever the machine says comes next. A stage that ra
 leaves the Document at `failed` with the error recorded, and that transition is
 emitted too.
 
-It imports no Celery and no tasks: enqueueing is a callable the caller passes in, so
-the runner can be driven from a test with no broker.
+A stage that fails on a model is the exception: `ModelError` is worth another try,
+so the runner asks the policy in `retry` for a delay and hands the failure back to
+the caller to raise, leaving the row exactly as it found it. A Document waiting on a
+retry reads the status it already had — a retry that is still in flight is not a
+failure yet — and only an exhausted schedule writes `failed`. See ADR 0007.
+
+It imports no Celery and no tasks: enqueueing is a callable the caller passes in, and
+so is retrying, so the runner can be driven from a test with no broker.
 """
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, NoReturn, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -36,6 +42,7 @@ from app.providers.factory import (
     get_formatter_model,
     get_vision_model,
 )
+from app.processing.retry import retry_delay, worth_retrying
 from app.processing.tags import replace_tags
 from app.providers.ports import ChatModel, Embedder
 from app.services.notification_service import notification_service
@@ -44,6 +51,9 @@ logger = logging.getLogger(__name__)
 
 Enqueue = Callable[[str, Stage], None]
 SessionFactory = Callable[[], Session]
+#: How the caller runs this stage again: given the failure and the seconds to wait, it
+#: raises. Under Celery that is `self.retry`; left out, every failure is terminal.
+Retry = Callable[[BaseException, int], NoReturn]
 
 
 @dataclass(frozen=True)
@@ -71,15 +81,20 @@ def run_stage(
     stage: Stage,
     *,
     enqueue: Enqueue,
+    retry: Optional[Retry] = None,
+    attempt: int = 0,
     session_factory: Optional[SessionFactory] = None,
     models: Optional[Models] = None,
     **options: Any,
 ) -> dict:
     """Run one stage over one Document and return the task's result dict.
 
-    `enqueue` is called with the next stage, if the machine names one. Passing
-    `session_factory` or `models` is for tests; left out, the runner opens its own
-    session on a freshly disposed engine and asks the factory.
+    `enqueue` is called with the next stage, if the machine names one. `retry` is
+    called instead of recording a failure when the stage fails on a model and the
+    schedule has an attempt left, `attempt` being how many retries this run has
+    already had; with no `retry` every failure is terminal. Passing `session_factory`
+    or `models` is for tests; left out, the runner opens its own session on a freshly
+    disposed engine and asks the factory.
     """
     try:
         document_uuid = UUID(document_id)
@@ -125,6 +140,7 @@ def run_stage(
 
         except Exception as e:
             logger.error(f"Error running {stage} for document {document_id}: {e}", exc_info=True)
+            _retry_or_let_it_fail(db, document_id, stage, e, retry, attempt)
             _record_failure(db, document_uuid, f"{spec.error_prefix}{e}")
             return {"status": "error", "document_id": document_id, "message": str(e)}
 
@@ -144,6 +160,41 @@ def run_stage(
 
     finally:
         db.close()
+
+
+def _retry_or_let_it_fail(
+    db: Session,
+    document_id: str,
+    stage: Stage,
+    error: Exception,
+    retry: Optional[Retry],
+    attempt: int,
+) -> None:
+    """Run this stage again later if the failure is worth it, or return and let it be terminal.
+
+    "Run it again" is the caller's to do — under Celery it is `self.retry`, which the
+    runner will not import — so this either raises out of `run_stage` through that
+    callable or comes back having done nothing. Nothing is written either way: a
+    Document waiting on a retry keeps the status it already had, because a retry still
+    in flight is not a failure, and writing `failed` now would be a transition that
+    unwrites itself on the next attempt.
+    """
+    if retry is None or not worth_retrying(error):
+        return
+    delay = retry_delay(attempt)
+    if delay is None:
+        logger.warning(
+            f"{stage} for document {document_id} still fails on a model after {attempt} "
+            f"retries; leaving it failed: {error}"
+        )
+        return
+
+    logger.warning(
+        f"{stage} for document {document_id} failed on a model: {error}. Retrying in "
+        f"{delay}s; the Document keeps the status it has until then."
+    )
+    db.rollback()
+    retry(error, delay)
 
 
 def _hand_on(

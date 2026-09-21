@@ -6,7 +6,7 @@ tests talk to OpenAI and only run with `pytest --live`.
 import pytest
 
 from app.config import settings
-from app.providers import Message, ModelError
+from app.providers import Message, ModelConfigurationError, ModelError
 from app.providers.openai import OpenAIChatModel
 from tests.fakes import FakeJsonEndpoint
 
@@ -85,11 +85,22 @@ class TestOpenAIChatModel:
 class TestOpenAIChatModelFailures:
     """Every provider failure surfaces as ModelError."""
 
-    def test_missing_api_key_raises_model_error(self):
+    def test_missing_api_key_raises_a_configuration_error(self):
+        """Not transient, so processing fails the Document at once rather than waiting
+        six minutes to tell the operator the same thing. See ADR 0007."""
         model = OpenAIChatModel(api_key=None, model="gpt-test", timeout=5)
 
-        with pytest.raises(ModelError, match="OPENAI_API_KEY"):
+        with pytest.raises(ModelConfigurationError, match="OPENAI_API_KEY"):
             model.chat([Message(role="user", content="hello")])
+
+    def test_a_configuration_error_reaches_the_caller_as_one(self):
+        """The provider boundary must not re-wrap it as a plain, retryable ModelError."""
+        model = OpenAIChatModel(api_key=None, model="gpt-test", timeout=5)
+
+        try:
+            model.chat([Message(role="user", content="hello")])
+        except ModelError as raised:
+            assert type(raised) is ModelConfigurationError
 
     def test_error_response_raises_model_error(self):
         error = {"error": {"message": "Incorrect API key", "type": "invalid_request_error"}}
@@ -117,10 +128,11 @@ class TestOpenAIChatModelFailures:
         with pytest.raises(ModelError):
             model.chat([Message(role="user", content="hello")])
 
-    def test_images_raise_model_error(self):
+    def test_images_raise_a_configuration_error(self):
+        """A model that cannot take images will not learn to on the second attempt."""
         model = OpenAIChatModel(api_key="k", model="gpt-test", timeout=5)
 
-        with pytest.raises(ModelError, match="images"):
+        with pytest.raises(ModelConfigurationError, match="images"):
             model.chat([Message(role="user", content="Read this.", images=[b"\x89PNG"])])
 
 
