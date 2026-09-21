@@ -102,7 +102,9 @@ class TestRunEmbedding:
     def test_returns_a_chunk_and_a_vector_for_each_piece_of_text(self) -> None:
         embedder = FakeEmbedder(dimension=4)
 
-        result = run_embedding(ocr_text="x" * 250, embedder=embedder, chunk_size=100)
+        result = run_embedding(
+            ocr_text="x" * 250, embedder=embedder, chunk_size=100, chunk_overlap=0
+        )
 
         assert result.status is ProcessingStatus.EMBEDDING_COMPLETE
         assert result.embeddings is not None
@@ -110,6 +112,20 @@ class TestRunEmbedding:
         assert all(len(chunk.vector) == 4 for chunk in result.embeddings.chunks)
         assert result.embeddings.model_name == "fake-embedder"
         assert result.info == {"embedding_count": 3, "chunk_count": 3}
+
+    def test_overlaps_the_chunks_by_the_configured_amount(self) -> None:
+        embedder = FakeEmbedder(dimension=4)
+
+        result = run_embedding(
+            ocr_text="".join(str(n % 10) for n in range(300)),
+            embedder=embedder,
+            chunk_size=100,
+            chunk_overlap=30,
+        )
+
+        assert result.embeddings is not None
+        first, second = (chunk.text for chunk in result.embeddings.chunks[:2])
+        assert second.startswith(first[-30:])
 
     def test_embeds_the_title_tags_and_description_along_with_the_text(self) -> None:
         embedder = FakeEmbedder()
@@ -121,6 +137,7 @@ class TestRunEmbedding:
             description="From the quarry",
             tags=["invoice", "quarry"],
             chunk_size=10_000,
+            chunk_overlap=0,
         )
 
         assert result.embeddings is not None
@@ -134,7 +151,9 @@ class TestRunEmbedding:
     def test_a_document_with_no_text_is_skipped_rather_than_moved(
         self, ocr_text: Optional[str]
     ) -> None:
-        result = run_embedding(ocr_text=ocr_text, embedder=FakeEmbedder())
+        result = run_embedding(
+            ocr_text=ocr_text, embedder=FakeEmbedder(), chunk_size=500, chunk_overlap=50
+        )
 
         assert result.outcome == "skipped"
         assert result.status is None
@@ -146,7 +165,12 @@ class TestRunEmbedding:
                 raise ModelError("embedder unreachable")
 
         with pytest.raises(ModelError):
-            run_embedding(ocr_text="Some text", embedder=FailingEmbedder())
+            run_embedding(
+                ocr_text="Some text",
+                embedder=FailingEmbedder(),
+                chunk_size=500,
+                chunk_overlap=50,
+            )
 
 
 class TestEnrichText:

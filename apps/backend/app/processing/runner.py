@@ -242,6 +242,7 @@ def _invoke_embedding(
         description=doc.description,
         tags=sorted(tag.name for tag in doc.tags),
         chunk_size=settings.EMBEDDING_CHUNK_SIZE,
+        chunk_overlap=settings.EMBEDDING_CHUNK_OVERLAP,
     )
 
 

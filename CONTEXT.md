@@ -113,6 +113,13 @@ tags to replace, and whether clients should hear the Document changed. A stage r
 it never writes.
 _Avoid_: outcome, response
 
+**Chunk**:
+A piece of a Document's text small enough to embed, and the unit search and chat retrieve.
+A chunk ends at the last sentence boundary before the configured size, or at the size when
+no boundary falls there, and overlaps the chunk before it so a passage spanning a boundary
+is still findable. No chunk is empty. Chunking is pure: text in, chunks out.
+_Avoid_: segment, passage, fragment, page
+
 **Runner**:
 What runs one stage over one Document: the session, the models, the transaction, the status
 event with the state read from the row, and what to enqueue next. The only part of

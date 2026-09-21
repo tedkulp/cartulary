@@ -124,6 +124,14 @@ watchers and the intake service, and collapse into one entry point in a later sl
 - Each Celery task in `app/tasks/document_tasks.py` is a two-line adapter naming its stage.
   Task names are unchanged, so queued work survives a deploy. There is no `autoretry_for`.
 
+- `chunking.py` splits the text the embedding stage embeds, and is pure: `chunk(text,
+  size, overlap)`, with `EMBEDDING_CHUNK_SIZE` and `EMBEDDING_CHUNK_OVERLAP` passed in by
+  the runner. A chunk ends at the last sentence boundary before the size cap, or at the cap
+  when none falls there, and no chunk is empty. **The start position strictly advances**,
+  enforced in the loop: a boundary landing inside the overlap is ignored in favour of the
+  cap, and the next start is floored at `previous + 1`. That is the invariant the chunker
+  this replaced lacked — `"A. " + "x" * 600` at 500/50 used to hang.
+
 Rules the runner keeps, which nothing else may take over:
 
 - **The "from" state is read from the row**, in the same transaction as the write. No call
@@ -134,7 +142,8 @@ Rules the runner keeps, which nothing else may take over:
 
 See ADR 0006. Tests: `test_processing_machine.py` covers the table exhaustively with no
 fixtures, `test_processing_stages.py` runs the stage functions on the fakes in
-`tests/fakes.py`, and `test_processing_runner.py` runs the runner against the real
+`tests/fakes.py`, `test_chunking.py` covers the chunking rules and the input that used to
+hang, and `test_processing_runner.py` runs the runner against the real
 PostgreSQL from the `db_session` fixture, because a mocked Session cannot say what landed
 in the row (ADR 0005).
 

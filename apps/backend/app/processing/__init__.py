@@ -1,7 +1,7 @@
 """Processing: the stages a Document goes through, and what runs them.
 
 `stages` is the machine itself — the statuses, the transition table and the stage
-functions — and is pure. `runner` is the plumbing around one stage: the session, the
+functions — and is pure; `chunking` is the pure splitter the embedding stage feeds. `runner` is the plumbing around one stage: the session, the
 models, the transaction, the status event and what to enqueue next. Neither imports
 Celery; a Celery task is an adapter over `run_stage`.
 

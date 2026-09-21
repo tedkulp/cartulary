@@ -15,6 +15,7 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
 
+from app.processing import chunking
 from app.providers.ports import ChatModel, Embedder
 
 if TYPE_CHECKING:  # Importing the model names this enum; keep Redis out of that path.
@@ -191,7 +192,8 @@ def run_embedding(
     title: Optional[str] = None,
     description: Optional[str] = None,
     tags: Sequence[str] = (),
-    chunk_size: int = 1000,
+    chunk_size: int,
+    chunk_overlap: int,
 ) -> StageResult:
     """Turn a Document's text into the chunks and vectors that make it searchable.
 
@@ -207,7 +209,7 @@ def run_embedding(
         f"(OCR: {len(ocr_text)}) with {embedder!r}"
     )
 
-    chunks = _chunk(enriched_text, chunk_size)
+    chunks = chunking.chunk(enriched_text, chunk_size, chunk_overlap)
     if not chunks:
         return skipped("No chunks to embed")
 
@@ -245,11 +247,6 @@ def enrich_text(
     if not prefix:
         return ocr_text
     return "\n".join(prefix) + "\n\nContent:\n" + ocr_text
-
-
-def _chunk(text: str, chunk_size: int) -> List[str]:
-    """Fixed-size chunks with no overlap. Replaced by app/processing/chunking.py in #38."""
-    return [text[start : start + chunk_size] for start in range(0, len(text), chunk_size)]
 
 
 def run_metadata(
