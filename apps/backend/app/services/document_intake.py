@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateError, InvalidDocumentError
 from app.models.document import Document
+from app.processing import ProcessingStatus
 from app.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ class DocumentIntakeService:
             checksum=checksum,
             owner_id=owner_id,
             uploaded_by=uploader_id,
-            processing_status="pending",
+            processing_status=ProcessingStatus.PENDING.value,
         )
         try:
             self.db.add(document)
@@ -120,7 +121,7 @@ class DocumentIntakeService:
             self.enqueue(str(document.id))
         except Exception as error:
             logger.exception("Failed to queue processing for Document %s", document.id)
-            document.processing_status = "failed"
+            document.processing_status = ProcessingStatus.FAILED.value
             document.processing_error = f"Processing could not be queued: {error}"
             try:
                 self.db.commit()
@@ -129,7 +130,7 @@ class DocumentIntakeService:
                     "Failed to persist queue failure for Document %s", document_id
                 )
                 self.db.rollback()
-                document.processing_status = "failed"
+                document.processing_status = ProcessingStatus.FAILED.value
                 document.processing_error = f"Processing could not be queued: {error}"
 
         try:
