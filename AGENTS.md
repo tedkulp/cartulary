@@ -128,8 +128,7 @@ every stage's own rules, are decided there and nowhere else. Starting one is
   `force_ocr` and `refresh_cache` belong to OCR alone. It is the only module in the
   package that imports `app.tasks`; **no route, service or watcher calls `.delay()`**, and
   `tests/test_processing_queue.py` fails if one starts to. Reprocessing is `Stage.OCR`
-  with `force_ocr`, so `reprocess_document` is now only a name kept registered for work
-  queued before the deploy.
+  with `force_ocr`, not a task of its own.
 - `should_reembed(document)` in `stages.py` is the one answer to "is this Document
   embedded enough that editing its metadata should re-embed it" — true at
   `embedding_complete` and `llm_complete`. The title/description edit and both tag routes

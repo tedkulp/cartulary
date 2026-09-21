@@ -9,14 +9,10 @@ Task names are unchanged, so work already queued survives a deploy. There is no
 that used to sit here never fired, because the runner returns a dict rather than
 raising. Making `ModelError` retryable is its own issue.
 """
-import logging
-
 from app.processing import Stage
 from app.processing.queue import enqueue_stage
 from app.processing.runner import run_stage
 from app.tasks.celery_app import celery_app
-
-logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, name="app.tasks.process_document")
@@ -31,18 +27,6 @@ def process_document(
         force_ocr=force_ocr,
         refresh_cache=refresh_cache,
     )
-
-
-@celery_app.task(name="app.tasks.reprocess_document")
-def reprocess_document(document_id: str, refresh_cache: bool = False) -> dict:
-    """Read a document again, forcing OCR even where the file has embedded text.
-
-    Nothing queues this any more: reprocessing is `Stage.OCR` with `force_ocr`, like
-    every other entry point. The name stays registered so a reprocess queued before
-    this deploy still finds a task to run.
-    """
-    logger.info(f"Reprocessing document {document_id} (forcing OCR)")
-    return process_document(document_id, force_ocr=True, refresh_cache=refresh_cache)
 
 
 @celery_app.task(bind=True, name="app.tasks.generate_embeddings")
