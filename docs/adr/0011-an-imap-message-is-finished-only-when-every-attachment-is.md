@@ -79,6 +79,6 @@ landed.
 
 The rows are backend-only for now: nothing in the API or the web app reads `import_failures`
 yet, so a refused attachment is visible to an operator in the database and the log rather than
-in the UI. Surfacing them on the import source is follow-up work, not part of the rule.
+in the UI. Surfacing them on the import source is follow-up work, not part of the rule — #48.
 
 Closes #33.
