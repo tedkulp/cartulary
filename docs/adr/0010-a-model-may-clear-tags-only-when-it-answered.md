@@ -37,8 +37,8 @@ count used to read `0` for every one of those.
 **What this costs**: a successful empty answer clears tags a person added by hand, because
 `document_tags` does not record who put a tag on a document. Distinguishing model-set from
 user-set associations needs a column and a migration, and the archive's owner decided that
-is worth doing separately rather than holding this fix behind it. Until then the model
-replaces the whole set, which is already true of every non-empty answer.
+is worth doing separately rather than holding this fix behind it — #47. Until then the
+model replaces the whole set, which is already true of every non-empty answer.
 
 The alternative was to keep the behaviour one-directional and close the issue: never let a
 model remove the last tag, and fix only the misleading count. That keeps hand-set tags safe
