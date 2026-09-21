@@ -92,3 +92,29 @@ extraction. A capability is on exactly when its builder in the factory returns a
 rather than `None`. An endpoint needing one that is off answers 503; `GET /capabilities`
 reports all four so a client can hide the feature instead of offering it. See ADR 0003.
 _Avoid_: feature flag, toggle
+
+### Processing
+
+**Stage**:
+One step of processing a Document: reading it (OCR), making it searchable (embedding),
+describing it (metadata extraction). A stage is a pure function from its inputs and its
+models to a stage result; running one is the runner's job.
+_Avoid_: step, phase, job, task
+
+**Processing status**:
+Where a Document is in processing, stored on the row and the only record of it. One of
+seven: pending, processing, ocr_complete, ocr_failed, embedding_complete, llm_complete,
+failed. Nothing infers it from what the Document holds. See ADR 0006.
+_Avoid_: state, processing state
+
+**Stage result**:
+What a finished stage asks for: the fields to write, the status to move to, the chunks or
+tags to replace, and whether clients should hear the Document changed. A stage returns one;
+it never writes.
+_Avoid_: outcome, response
+
+**Runner**:
+What runs one stage over one Document: the session, the models, the transaction, the status
+event with the state read from the row, and what to enqueue next. The only part of
+processing that touches the database or the queue.
+_Avoid_: orchestrator, pipeline, worker

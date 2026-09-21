@@ -19,6 +19,7 @@ from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
 from app.database import Base
+from app.processing import ProcessingStatus
 
 
 class Document(Base):
@@ -55,13 +56,14 @@ class Document(Base):
     uploaded_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))  # Who uploaded (may differ from owner)
     is_public = Column(Boolean, default=False, nullable=False)
 
-    # Processing status
+    # Processing status. The values are ProcessingStatus, which is why the column can
+    # stay a String: the enum's members are exactly the strings already stored here.
     processing_status = Column(
         String(50),
-        default="pending",
+        default=ProcessingStatus.PENDING.value,
         nullable=False,
         index=True
-    )  # pending, processing, ocr_complete, embedding_complete, llm_complete, failed
+    )
     processing_error = Column(Text)
 
     # Timestamps

@@ -1,636 +1,71 @@
-"""Celery tasks for document processing."""
+"""Celery tasks for document processing.
+
+Each task is an adapter: it names a stage and hands it to the runner, which owns the
+session, the models, the transaction, the status event and what comes next. The whole
+machine lives in `app/processing/`; nothing about processing is decided here.
+
+Task names are unchanged, so work already queued survives a deploy. There is no
+`autoretry_for`: a stage that fails is terminal today, and the retry configuration
+that used to sit here never fired, because the runner returns a dict rather than
+raising. Making `ModelError` retryable is its own issue.
+"""
 import logging
-import random
-from uuid import UUID
-from typing import List, Optional
 
-from sqlalchemy import text as sql_text
-from sqlalchemy.orm import Session
-
-from app.config import settings
-from app.database import SessionLocal
-from app.models.document import Document, DocumentEmbedding
-from app.providers.factory import (
-    get_assistant_model,
-    get_embedder,
-    get_formatter_model,
-    get_vision_model,
-)
-from app.services.ocr_service import OCRService
-from app.services.notification_service import notification_service
-from app.services.page_cache import get_page_cache
+from app.processing import Stage
+from app.processing.runner import run_stage
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, name="app.tasks.process_document", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
+def enqueue_stage(document_id: str, stage: Stage) -> None:
+    """Queue the next stage for a document: where the runner meets Celery.
+
+    The `.delay()` calls still scattered through the API routes, the watchers and the
+    intake service collapse into this in a later slice.
+    """
+    _TASK_FOR[stage].delay(document_id)
+
+
+@celery_app.task(bind=True, name="app.tasks.process_document")
 def process_document(
     self, document_id: str, force_ocr: bool = False, refresh_cache: bool = False
 ) -> dict:
-    """
-    Process a document: extract text via OCR and update database.
-
-    Args:
-        document_id: UUID of the document to process
-        force_ocr: If True, force OCR even if embedded text exists (for reprocessing)
-        refresh_cache: If True, read every page with the models again instead of reusing
-            what the page cache holds for it
-
-    Returns:
-        Processing result dict with status and metadata
-    """
-    # Dispose the engine to ensure fresh connections after fork
-    from app.database import engine
-    engine.dispose()
-
-    # Create a fresh database session
-    db: Session = SessionLocal()
-
-    try:
-        # Get document from database
-        doc = db.query(Document).filter(Document.id == UUID(document_id)).first()
-        if not doc:
-            logger.error(f"Document not found: {document_id}")
-            return {"status": "error", "message": "Document not found"}
-
-        # Update status to processing
-        doc.processing_status = "processing"
-        db.commit()
-
-        # Notify status change
-        notification_service.notify_status_changed_sync(
-            UUID(document_id), "pending", "processing"
-        )
-
-        logger.info(f"Processing document {document_id}: {doc.original_filename}")
-
-        # Get absolute file path
-        from app.services.storage_service import StorageService
-        storage = StorageService()
-        absolute_path = str(storage.get_file_path(doc.file_path))
-
-        logger.info(f"Absolute file path: {absolute_path}")
-
-        # Initialize OCR service
-        ocr_service = OCRService(
-            vision_model=get_vision_model(),
-            formatter_model=get_formatter_model(),
-            page_concurrency=settings.OCR_PAGE_CONCURRENCY,
-            page_cache=get_page_cache(),
-        )
-
-        # Extract text
-        extracted_text = ocr_service.extract_text(
-            absolute_path, force_ocr=force_ocr, refresh_cache=refresh_cache
-        )
-
-        if extracted_text and len(extracted_text.strip()) > 0:
-            doc.ocr_text = extracted_text
-            doc.ocr_language = ocr_service.detect_language(extracted_text)
-            doc.processing_status = "ocr_complete"
-            db.commit()
-
-            # Notify status change
-            notification_service.notify_status_changed_sync(
-                UUID(document_id), "processing", "ocr_complete"
-            )
-
-            logger.info(
-                f"Extracted {len(extracted_text)} characters from {doc.original_filename}"
-            )
-        else:
-            logger.warning(f"No text extracted from {doc.original_filename}")
-            doc.ocr_text = ""
-            # Mark as pending for retry or manual processing
-            doc.processing_status = "ocr_failed"
-            doc.processing_error = "No text could be extracted from document"
-            db.commit()
-
-            # Notify status change
-            notification_service.notify_status_changed_sync(
-                UUID(document_id), "processing", "ocr_failed"
-            )
-
-        # Count pages if PDF
-        if absolute_path.endswith(".pdf"):
-            try:
-                import fitz
-
-                pdf_doc = fitz.open(absolute_path)
-                doc.page_count = len(pdf_doc)
-                pdf_doc.close()
-            except Exception as e:
-                logger.error(f"Failed to count PDF pages: {e}")
-
-        db.commit()
-
-        logger.info(
-            f"Processed document {document_id} with status: {doc.processing_status}"
-        )
-
-        _enqueue_next_after_ocr(document_id, doc.processing_status, doc.ocr_text)
-
-        return {
-            "status": "success",
-            "document_id": document_id,
-            "text_length": len(extracted_text) if extracted_text else 0,
-            "page_count": doc.page_count,
-        }
-
-    except Exception as e:
-        logger.error(f"Error processing document {document_id}: {e}", exc_info=True)
-
-        # Update document with error status
-        try:
-            doc = db.query(Document).filter(Document.id == UUID(document_id)).first()
-            if doc:
-                doc.processing_status = "failed"
-                doc.processing_error = str(e)
-                db.commit()
-        except Exception as db_error:
-            logger.error(f"Failed to update error status: {db_error}")
-
-        return {"status": "error", "document_id": document_id, "message": str(e)}
-
-    finally:
-        db.close()
+    """Read a document: OCR its file and record what it says."""
+    return run_stage(
+        document_id,
+        Stage.OCR,
+        enqueue=enqueue_stage,
+        force_ocr=force_ocr,
+        refresh_cache=refresh_cache,
+    )
 
 
 @celery_app.task(name="app.tasks.reprocess_document")
 def reprocess_document(document_id: str, refresh_cache: bool = False) -> dict:
-    """
-    Reprocess a document (useful for retrying failed processing).
-    Forces OCR even if embedded text exists.
+    """Read a document again, forcing OCR even where the file has embedded text.
 
-    Args:
-        document_id: UUID of the document to reprocess
-        refresh_cache: If True, read the pages with the models again rather than reusing
-            what the page cache holds, for when the models are suspected of a bad read
-
-    Returns:
-        Processing result dict
+    `refresh_cache` reads every page with the models again rather than reusing what
+    the page cache holds, for when the models are suspected of a bad read.
     """
     logger.info(f"Reprocessing document {document_id} (forcing OCR)")
     return process_document(document_id, force_ocr=True, refresh_cache=refresh_cache)
 
 
-@celery_app.task(bind=True, name="app.tasks.generate_embeddings", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
+@celery_app.task(bind=True, name="app.tasks.generate_embeddings")
 def generate_embeddings(self, document_id: str) -> dict:
-    """
-    Generate vector embeddings for a document's text.
+    """Make a document searchable: chunk its text and embed the chunks."""
+    return run_stage(document_id, Stage.EMBEDDING, enqueue=enqueue_stage)
 
-    Args:
-        document_id: UUID of the document to generate embeddings for
 
-    Returns:
-        Processing result dict with status and embedding count
-    """
-    # Dispose the engine to ensure fresh connections after fork
-    from app.database import engine
-    engine.dispose()
+@celery_app.task(bind=True, name="tasks.extract_metadata")
+def extract_metadata(self, document_id: str) -> dict:
+    """Describe a document: extract its metadata and tags with the assistant model."""
+    return run_stage(document_id, Stage.METADATA, enqueue=enqueue_stage)
 
-    embedder = get_embedder()
-    if embedder is None:
-        logger.info(f"Embeddings disabled, skipping document {document_id}")
-        return {"status": "skipped", "message": "Embeddings disabled"}
 
-    db: Session = SessionLocal()
-    try:
-        # Get document from database including metadata using raw SQL
-        result = db.execute(
-            sql_text("SELECT ocr_text, title, description FROM documents WHERE id = :doc_id"),
-            {"doc_id": document_id}
-        )
-        row = result.fetchone()
-
-        if not row:
-            logger.error(f"Document not found: {document_id}")
-            return {"status": "error", "message": "Document not found"}
-
-        ocr_text = row[0]
-        title = row[1]
-        description = row[2]
-
-        if not ocr_text:
-            logger.warning(f"No OCR text available for document {document_id}")
-            return {"status": "skipped", "message": "No text to embed"}
-
-        # Get tags for this document
-        tags_result = db.execute(
-            sql_text("""
-                SELECT t.name
-                FROM tags t
-                JOIN document_tags dt ON t.id = dt.tag_id
-                WHERE dt.document_id = :doc_id
-                ORDER BY t.name
-            """),
-            {"doc_id": document_id}
-        )
-        tags = [row[0] for row in tags_result.fetchall()]
-
-        # Make a plain Python string copy to avoid any SQLAlchemy proxy issues
-        ocr_text_copy = str(ocr_text)
-
-        # Build enriched text with metadata
-        metadata_prefix = []
-        if title:
-            metadata_prefix.append(f"Title: {title}")
-        if tags:
-            metadata_prefix.append(f"Tags: {', '.join(tags)}")
-        if description:
-            metadata_prefix.append(f"Description: {description}")
-
-        # Combine metadata with content
-        if metadata_prefix:
-            enriched_text = "\n".join(metadata_prefix) + "\n\nContent:\n" + ocr_text_copy
-        else:
-            enriched_text = ocr_text_copy
-
-        logger.info(f"Created enriched text with metadata (title: {bool(title)}, tags: {len(tags)}, description: {bool(description)})")
-
-        logger.info(f"Generating embeddings for document {document_id}")
-        logger.info(f"Document has {len(enriched_text)} characters of enriched text (OCR: {len(ocr_text_copy)})")
-
-        # Delete existing embeddings for this document
-        db.query(DocumentEmbedding).filter(
-            DocumentEmbedding.document_id == UUID(document_id)
-        ).delete()
-        db.commit()
-
-        logger.info(f"Using embedder {embedder!r} (dimension: {embedder.dimension})")
-
-        # Chunk the text
-        logger.info(f"About to chunk enriched text ({len(enriched_text)} characters)")
-        logger.info(f"Text type: {type(enriched_text)}")
-        logger.info(f"Text preview (first 100 chars): {enriched_text[:100]}")
-        logger.info(f"Chunk size: {settings.EMBEDDING_CHUNK_SIZE}, overlap: {settings.EMBEDDING_CHUNK_OVERLAP}")
-
-        # CRITICAL WORKAROUND: Use simplest possible chunking to avoid mysterious hangs
-        logger.info("Using simple fixed-size chunking (no rfind, no strip)...")
-        chunk_size = settings.EMBEDDING_CHUNK_SIZE
-        chunks = []
-
-        logger.info(f"Starting loop: text length is {len(enriched_text)}")
-        i = 0
-        while i < len(enriched_text):
-            logger.info(f"Loop iteration {len(chunks)}: i={i}")
-            end = min(i + chunk_size, len(enriched_text))
-            chunk = enriched_text[i:end]
-            chunks.append(chunk)
-            i = end
-            logger.info(f"Added chunk {len(chunks)}, next i={i}")
-
-        logger.info(f"✓ Loop completed, got {len(chunks)} chunks")
-
-        if not chunks:
-            logger.warning(f"No chunks generated for document {document_id}")
-            return {"status": "skipped", "message": "No chunks to embed"}
-
-        # Generate embeddings for all chunks (the embedder batches as its provider needs)
-        logger.info(f"About to start embedding generation for {len(chunks)} chunks...")
-        logger.info(f"First chunk preview: {chunks[0][:100]}...")
-
-        try:
-            embeddings = embedder.embed(chunks)
-            logger.info(f"Completed embedding generation - got {len(embeddings)} embeddings")
-        except Exception as embed_error:
-            logger.error(f"Failed to generate embeddings: {embed_error}", exc_info=True)
-            raise
-
-        # Store embeddings in database
-        doc_uuid = UUID(document_id)
-        for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            doc_embedding = DocumentEmbedding(
-                document_id=doc_uuid,
-                chunk_index=idx,
-                chunk_text=chunk,
-                embedding=embedding,
-                embedding_model=embedder.model_name,
-            )
-            db.add(doc_embedding)
-
-        # Update document status using raw SQL
-        db.execute(
-            sql_text("UPDATE documents SET processing_status = 'embedding_complete' WHERE id = :doc_id"),
-            {"doc_id": document_id}
-        )
-        db.commit()
-
-        # Notify status change
-        notification_service.notify_status_changed_sync(
-            UUID(document_id), "ocr_complete", "embedding_complete"
-        )
-
-        logger.info(
-            f"Generated {len(embeddings)} embeddings for document {document_id}"
-        )
-
-        # Chain onto metadata extraction when there is an assistant model
-        if get_assistant_model() is not None:
-            logger.info(f"Triggering LLM metadata extraction for document {document_id}")
-            extract_metadata.delay(document_id)
-        else:
-            logger.info(f"No assistant model, skipping metadata extraction for {document_id}")
-
-        return {
-            "status": "success",
-            "document_id": document_id,
-            "embedding_count": len(embeddings),
-            "chunk_count": len(chunks),
-        }
-
-    except Exception as e:
-        logger.error(
-            f"Error generating embeddings for document {document_id}: {e}", exc_info=True
-        )
-
-        # Update document with error status using raw SQL
-        try:
-            db.execute(
-                sql_text("UPDATE documents SET processing_status = 'failed', processing_error = :error WHERE id = :doc_id"),
-                {"error": f"Embedding generation failed: {str(e)}", "doc_id": document_id}
-            )
-            db.commit()
-        except Exception as db_error:
-            logger.error(f"Failed to update error status: {db_error}")
-
-        return {"status": "error", "document_id": document_id, "message": str(e)}
-
-    finally:
-        db.close()
-
-
-def _enqueue_next_after_ocr(
-    document_id: str, processing_status: str, ocr_text: Optional[str]
-) -> None:
-    """Chain a finished OCR onto whichever capability is on, if any.
-
-    Embeddings go first because that task chains onto metadata extraction itself;
-    with no embedder, metadata is enqueued directly. A capability is off when its
-    builder returns None, never by reading a setting here (ADR 0001, ADR 0003).
-    """
-    if processing_status != "ocr_complete" or not ocr_text:
-        logger.info(f"No OCR text to work from, processing complete for {document_id}")
-        return
-
-    if get_embedder() is not None:
-        logger.info(f"Triggering embedding generation for document {document_id}")
-        generate_embeddings.delay(document_id)
-    elif get_assistant_model() is not None:
-        logger.info(f"No embedder, triggering metadata extraction for {document_id}")
-        extract_metadata.delay(document_id)
-    else:
-        logger.info(f"No embedder or assistant model, processing complete for {document_id}")
-
-
-def _random_tag_color() -> str:
-    """Generate a random mid-range hex color suitable for tag backgrounds.
-
-    Uses HSL with:
-      - Hue: full 0-360° range for variety
-      - Saturation: 40-70% (vivid enough to read, not garish)
-      - Lightness: 35-60% (dark enough for white text, light enough to not look black)
-    """
-    h = random.randint(0, 359)
-    s = random.randint(40, 70) / 100.0
-    l = random.randint(35, 60) / 100.0  # noqa: E741
-
-    # HSL -> RGB conversion
-    c = (1 - abs(2 * l - 1)) * s
-    x = c * (1 - abs((h / 60) % 2 - 1))
-    m = l - c / 2
-
-    if h < 60:
-        r, g, b = c, x, 0
-    elif h < 120:
-        r, g, b = x, c, 0
-    elif h < 180:
-        r, g, b = 0, c, x
-    elif h < 240:
-        r, g, b = 0, x, c
-    elif h < 300:
-        r, g, b = x, 0, c
-    else:
-        r, g, b = c, 0, x
-
-    r, g, b = int((r + m) * 255), int((g + m) * 255), int((b + m) * 255)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
-@celery_app.task(bind=True, name="tasks.extract_metadata", autoretry_for=(Exception,), retry_kwargs={'max_retries': 3, 'countdown': 5})
-def extract_metadata(self, document_id: str):
-    """
-    Extract metadata from document using LLM.
-
-    Args:
-        document_id: UUID of the document to process
-
-    Returns:
-        Dictionary with extraction results
-    """
-    from app.services.assistant_service import AssistantService
-
-    logger.info(f"Starting metadata extraction for document {document_id}")
-
-    assistant_model = get_assistant_model()
-    if assistant_model is None:
-        logger.info("LLM is disabled, skipping metadata extraction")
-        return {"status": "skipped", "reason": "LLM disabled"}
-
-    # Dispose the engine to ensure fresh connections after fork
-    from app.database import engine
-    engine.dispose()
-
-    db = SessionLocal()
-
-    try:
-        # Get document from database using raw SQL to avoid ORM issues
-        result = db.execute(
-            sql_text("SELECT ocr_text, original_filename, title FROM documents WHERE id = :doc_id"),
-            {"doc_id": document_id}
-        )
-        row = result.fetchone()
-
-        if not row:
-            logger.error(f"Document {document_id} not found")
-            return {"status": "error", "message": "Document not found"}
-
-        ocr_text = str(row[0]) if row[0] else ""
-        original_filename = str(row[1])
-        current_title = str(row[2])
-
-        if not ocr_text:
-            logger.warning(f"No OCR text available for document {document_id}")
-            return {"status": "skipped", "reason": "No text content"}
-
-        # Get existing tags to help LLM prefer existing ones
-        tags_result = db.execute(sql_text("SELECT name FROM tags ORDER BY name"))
-        existing_tags = [row[0] for row in tags_result.fetchall()]
-        logger.info(f"Found {len(existing_tags)} existing tags to provide to LLM")
-
-        # Extract metadata
-        logger.info(f"Calling assistant model for metadata extraction...")
-        assistant_service = AssistantService(assistant_model)
-        metadata = assistant_service.extract_metadata(ocr_text, original_filename, existing_tags)
-        logger.info(f"Extracted metadata: {metadata}")
-
-        # Get current description
-        desc_result = db.execute(
-            sql_text("SELECT description FROM documents WHERE id = :doc_id"),
-            {"doc_id": document_id}
-        )
-        desc_row = desc_result.fetchone()
-        current_description = str(desc_row[0]) if desc_row and desc_row[0] else ""
-
-        # Update document with extracted metadata using raw SQL
-        updates = []
-        params = {"doc_id": document_id}
-
-        # Update extracted_title field
-        if metadata.get("title") and metadata["title"] != "Unknown":
-            updates.append("extracted_title = :extracted_title")
-            params["extracted_title"] = metadata["title"]
-
-            # If current title is the filename, also update the main title field
-            if current_title == original_filename:
-                updates.append("title = :title")
-                params["title"] = metadata["title"]
-
-        if metadata.get("correspondent") and metadata["correspondent"] != "Unknown":
-            updates.append("extracted_correspondent = :correspondent")
-            params["correspondent"] = metadata["correspondent"]
-
-        if metadata.get("document_date"):
-            updates.append("extracted_date = :doc_date")
-            params["doc_date"] = metadata["document_date"]
-
-        if metadata.get("document_type") and metadata["document_type"] != "Unknown":
-            updates.append("extracted_document_type = :doc_type")
-            params["doc_type"] = metadata["document_type"]
-
-        if metadata.get("summary"):
-            updates.append("extracted_summary = :summary")
-            params["summary"] = metadata["summary"]
-
-            # If description is empty, copy summary to description
-            if not current_description or current_description.strip() == "":
-                updates.append("description = :description")
-                params["description"] = metadata["summary"]
-
-        # Update processing status
-        updates.append("processing_status = 'llm_complete'")
-
-        if updates:
-            update_sql = f"UPDATE documents SET {', '.join(updates)} WHERE id = :doc_id"
-            db.execute(sql_text(update_sql), params)
-            db.commit()
-
-            # Notify status change
-            notification_service.notify_status_changed_sync(
-                UUID(document_id), "embedding_complete", "llm_complete"
-            )
-
-            logger.info(f"Updated document {document_id} with extracted metadata")
-
-        # Handle suggested tags
-        suggested_tags = metadata.get("suggested_tags", [])
-
-        # Get document owner_id (needed for tag creation and notification)
-        owner_result = db.execute(
-            sql_text("SELECT owner_id FROM documents WHERE id = :doc_id"),
-            {"doc_id": document_id}
-        )
-        owner_row = owner_result.fetchone()
-        owner_id = str(owner_row[0]) if owner_row else None
-
-        # Counted as they land, not from the suggestions: a tag can be skipped for
-        # being empty after cleaning, or rolled back below.
-        tags_added = 0
-
-        if owner_id:
-            if suggested_tags:
-                # Replace existing tags entirely — remove all current associations first
-                db.execute(
-                    sql_text("DELETE FROM document_tags WHERE document_id = :doc_id"),
-                    {"doc_id": document_id}
-                )
-                db.commit()
-                logger.info(f"Cleared existing tags for document {document_id}")
-
-                logger.info(f"Processing {len(suggested_tags)} suggested tags")
-
-                for tag_name in suggested_tags:
-                    # Clean tag name
-                    tag_name = tag_name.strip().lower()[:50]
-                    if not tag_name:
-                        continue
-
-                    try:
-                        # Check if tag exists (tags are global, not per-user)
-                        tag_result = db.execute(
-                            sql_text("SELECT id FROM tags WHERE name = :name"),
-                            {"name": tag_name}
-                        )
-                        tag_row = tag_result.fetchone()
-
-                        if tag_row:
-                            tag_id = str(tag_row[0])
-                        else:
-                            # Create new tag
-                            import uuid
-                            tag_id = str(uuid.uuid4())
-                            db.execute(
-                                sql_text(
-                                    "INSERT INTO tags (id, name, color, created_by, created_at) VALUES (:id, :name, :color, :created_by, NOW())"
-                                ),
-                                {"id": tag_id, "name": tag_name, "color": _random_tag_color(), "created_by": owner_id}
-                            )
-                            db.commit()
-                            logger.info(f"Created new tag: {tag_name}")
-
-                        # Add tag to document
-                        db.execute(
-                            sql_text(
-                                "INSERT INTO document_tags (document_id, tag_id) VALUES (:doc_id, :tag_id)"
-                            ),
-                            {"doc_id": document_id, "tag_id": tag_id}
-                        )
-                        db.commit()
-                        tags_added += 1
-                        logger.info(f"Added tag '{tag_name}' to document")
-
-                    except Exception as tag_error:
-                        logger.error(f"Error processing tag '{tag_name}': {tag_error}")
-                        db.rollback()
-                        continue
-
-            # Notify about document update after tags are replaced
-            notification_service.notify_document_updated_sync(UUID(document_id), UUID(owner_id))
-
-        return {
-            "status": "success",
-            "document_id": document_id,
-            "metadata": metadata,
-            "tags_added": tags_added,
-        }
-
-    except Exception as e:
-        logger.error(
-            f"Error extracting metadata for document {document_id}: {e}", exc_info=True
-        )
-
-        # Update document with error status
-        try:
-            db.execute(
-                sql_text("UPDATE documents SET processing_error = :error WHERE id = :doc_id"),
-                {"error": f"Metadata extraction failed: {str(e)}", "doc_id": document_id}
-            )
-            db.commit()
-        except Exception as db_error:
-            logger.error(f"Failed to update error status: {db_error}")
-
-        return {"status": "error", "document_id": document_id, "message": str(e)}
-
-    finally:
-        db.close()
+_TASK_FOR = {
+    Stage.OCR: process_document,
+    Stage.EMBEDDING: generate_embeddings,
+    Stage.METADATA: extract_metadata,
+}
