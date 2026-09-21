@@ -265,18 +265,31 @@ class TestRunMetadata:
 
         assert result.tags == ["invoice", "quarry"]
 
-    def test_suggesting_no_tags_leaves_the_documents_tags_alone(self) -> None:
-        """An empty list means "nothing to add", never "clear what is there"."""
+    def test_answering_that_no_tags_apply_clears_the_documents_tags(self) -> None:
+        """An empty list is an answer, and the runner writes it: the tags go."""
         result = self._run(_reply(suggested_tags=[]))
 
-        assert result.tags is None
+        assert result.tags == []
 
     def test_a_reply_with_no_tag_field_leaves_the_documents_tags_alone(self) -> None:
-        """A model that left the tags out said the same as one that suggested none."""
+        """A model that left the tags out answered nothing, which is not "none apply"."""
         result = self._run(ScriptedChatModel('{"title": "Slate invoice"}'))
 
         assert result.tags is None
         assert result.fields["extracted_title"] == "Slate invoice"
+
+    def test_a_reply_that_would_not_parse_leaves_the_documents_tags_alone(self) -> None:
+        """The model that could not answer must not be read as clearing the tags."""
+        result = self._run(ScriptedChatModel("Sure! This looks like an invoice."))
+
+        assert result.tags is None
+        assert result.status is ProcessingStatus.LLM_COMPLETE
+
+    def test_reports_no_tag_count_when_it_wrote_no_tags(self) -> None:
+        """The runner counts what landed; a run that touched no tags reports nothing."""
+        result = self._run(ScriptedChatModel('{"title": "Slate invoice"}'))
+
+        assert "tags_added" not in result.info
 
     @pytest.mark.parametrize("ocr_text", [None, ""])
     def test_a_document_with_no_text_is_skipped_rather_than_moved(

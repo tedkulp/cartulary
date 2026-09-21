@@ -23,7 +23,7 @@ UNKNOWN_METADATA: Dict[str, Any] = {
     "document_date": None,
     "document_type": "Unknown",
     "summary": "",
-    "suggested_tags": [],
+    "suggested_tags": None,  # Answered nothing, which is not "no tags apply".
 }
 
 HISTORY = [
@@ -83,6 +83,39 @@ class TestExtractMetadata:
         assert "bill.pdf" in messages[1].content
         assert model.options == [{"temperature": 0.0, "max_tokens": 500}]
 
+    def test_an_empty_tag_list_is_an_answer_not_a_silence(self):
+        """"No tag applies" is an answer; the stage clears the document's tags on it."""
+        model = ScriptedChatModel(json.dumps({**METADATA, "suggested_tags": []}))
+
+        metadata = AssistantService(model).extract_metadata("Some bill text")
+
+        assert metadata["suggested_tags"] == []
+
+    def test_a_reply_that_left_the_tags_out_answered_nothing(self):
+        """Told apart from the empty list above: this one leaves the tags alone."""
+        model = ScriptedChatModel('{"title": "Water bill March 2024"}')
+
+        metadata = AssistantService(model).extract_metadata("Some bill text")
+
+        assert metadata["suggested_tags"] is None
+        assert metadata["title"] == "Water bill March 2024"
+
+    def test_tags_that_are_not_a_list_answered_nothing(self):
+        model = ScriptedChatModel(json.dumps({**METADATA, "suggested_tags": "water bill"}))
+
+        metadata = AssistantService(model).extract_metadata("Some bill text")
+
+        assert metadata["suggested_tags"] is None
+
+    def test_keeps_at_most_ten_tags(self):
+        model = ScriptedChatModel(
+            json.dumps({**METADATA, "suggested_tags": [f"tag {n}" for n in range(15)]})
+        )
+
+        metadata = AssistantService(model).extract_metadata("Some bill text")
+
+        assert metadata["suggested_tags"] == [f"tag {n}" for n in range(10)]
+
     def test_skips_reconciliation_without_existing_tags(self):
         model = ScriptedChatModel(json.dumps(METADATA))
 
@@ -115,6 +148,16 @@ class TestTagReconciliation:
 
         assert metadata["suggested_tags"] == ["water bill", "utilities"]
         assert metadata["title"] == "Water bill March 2024"
+
+    def test_an_empty_reconciliation_keeps_generated_tags(self):
+        """This pass renames tags; it is not where "no tag applies" can be decided."""
+        model = ScriptedChatModel(json.dumps(METADATA), "[]")
+
+        metadata = AssistantService(model).extract_metadata(
+            "Some bill text", existing_tags=["utility"]
+        )
+
+        assert metadata["suggested_tags"] == ["water bill", "utilities"]
 
     def test_unparseable_reply_keeps_generated_tags(self):
         model = ScriptedChatModel(json.dumps(METADATA), "I would map utilities to utility.")

@@ -147,6 +147,12 @@ every stage's own rules, are decided there and nowhere else. Starting one is
   the stage with nothing to show is raised, so it can be retried. That is why
   `AssistantService.extract_metadata` no longer turns a provider failure into empty
   metadata: a Document no model ever saw must not read `llm_complete`.
+- **What the metadata stage says about tags is three-valued.** A list replaces the
+  Document's tags, an empty list is the model answering that no tag applies and clears
+  them, and `None` — the reply would not parse, or left the key out — leaves them alone.
+  `AssistantService.extract_metadata` decides which; nothing downstream infers it from the
+  length of a list, and the task reports `tags_added` only when tags were written, so an
+  absent count means the stage touched none. See ADR 0010.
 - `queue.py` is the one entry point: `enqueue_stage(document_id, stage, **options)` names
   the task a stage is queued as, returns the Celery result (the reprocess and regenerate
   routes answer with its `task_id`), and refuses an option the stage does not take —

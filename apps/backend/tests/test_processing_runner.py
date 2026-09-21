@@ -422,9 +422,30 @@ class TestMetadataStage:
         db_session.refresh(existing)
         assert existing.color == "#abcdef"
 
-    def test_suggesting_no_tags_leaves_the_ones_the_document_has(
+    def test_answering_that_no_tags_apply_clears_the_ones_the_document_has(
         self, db_session, session_factory, owner, events, enqueue
     ) -> None:
+        """The model may end a document at no tags, as long as it said so (ADR 0010)."""
+        doc = make_document(
+            db_session, owner, status=ProcessingStatus.EMBEDDING_COMPLETE, ocr_text="Some text"
+        )
+        stale = Tag(id=uuid.uuid4(), name="stale", created_by=owner.id)
+        db_session.add(stale)
+        doc.tags = [stale]
+        db_session.commit()
+        models = Models(assistant=ScriptedChatModel('{"title": "Invoice", "suggested_tags": []}'))
+
+        result = run(doc, Stage.METADATA, session_factory, enqueue, models)
+
+        db_session.refresh(doc)
+        assert list(doc.tags) == []
+        assert result["tags_added"] == 0
+        assert db_session.query(Tag).filter(Tag.name == "stale").count() == 1
+
+    def test_a_reply_that_answered_no_tags_leaves_the_ones_the_document_has(
+        self, db_session, session_factory, owner, events, enqueue
+    ) -> None:
+        """A reply with no tags key answered nothing, so nothing is written or counted."""
         doc = make_document(
             db_session, owner, status=ProcessingStatus.EMBEDDING_COMPLETE, ocr_text="Some text"
         )
@@ -432,13 +453,13 @@ class TestMetadataStage:
         db_session.add(kept)
         doc.tags = [kept]
         db_session.commit()
-        models = Models(assistant=ScriptedChatModel('{"title": "Invoice", "suggested_tags": []}'))
+        models = Models(assistant=ScriptedChatModel('{"title": "Invoice"}'))
 
         result = run(doc, Stage.METADATA, session_factory, enqueue, models)
 
         db_session.refresh(doc)
         assert [tag.name for tag in doc.tags] == ["kept"]
-        assert result["tags_added"] == 0
+        assert "tags_added" not in result
 
     def test_counts_the_tags_that_landed_not_the_ones_suggested(
         self, db_session, session_factory, owner, events, enqueue

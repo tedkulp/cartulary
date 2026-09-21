@@ -26,6 +26,9 @@ ANSWER_ERROR_TEXT = (
 EXTRACTION_TEMPERATURE = 0.0
 EXTRACTION_MAX_TOKENS = 500
 
+# The most tags one extraction may suggest.
+MAX_TAGS = 10
+
 # Slightly creative but mostly factual for answers.
 ANSWER_TEMPERATURE = 0.3
 ANSWER_MAX_TOKENS = 1000
@@ -60,7 +63,11 @@ class AssistantService:
             existing_tags: List of existing tag names to reconcile against (optional)
 
         Returns:
-            Dictionary containing extracted metadata
+            Dictionary containing extracted metadata. `suggested_tags` is three-valued:
+            a list of names the model suggested, an empty list when it answered that no
+            tag applies, and None when it answered nothing — the reply would not parse,
+            or left the key out. The two are told apart here rather than inferred from
+            list length downstream, because they ask for opposite things (ADR 0010).
 
         Raises:
             ModelError: If the extraction call fails. It is not caught here: a
@@ -123,6 +130,7 @@ Guidelines:
   * Avoid vague or generic tags like "unknown", "document", "correspondence", "application", "information"
   * Each tag must be directly and specifically relevant — not tangentially related
   * Do NOT generate tags that overlap or subsume each other (e.g., don't emit both "tax" and "tax notification" — pick the most specific one)
+  * If no specific tag genuinely applies, return an empty array rather than inventing vague ones
 - Keep responses concise and factual
 - Return ONLY the JSON object, nothing else
 """
@@ -162,9 +170,11 @@ Respond ONLY with a JSON array of the final tags (no explanation):
 
         try:
             reconciled = json.loads(_strip_code_fences(self._extract(prompt)))
-            if isinstance(reconciled, list):
-                return reconciled[:10]
-            logger.warning("Tag reconciliation reply was not a JSON array, using generated tags")
+            # Reconciliation renames tags; it never decides that none apply. An empty
+            # array back is this pass misbehaving, and the generated tags stand.
+            if isinstance(reconciled, list) and reconciled:
+                return [tag for tag in reconciled if isinstance(tag, str)][:MAX_TAGS]
+            logger.warning("Tag reconciliation reply was not a list of tags, using generated tags")
         except (ModelError, ValueError) as e:
             logger.warning(f"Tag reconciliation failed, using generated tags: {e}")
 
@@ -195,7 +205,7 @@ Respond ONLY with a JSON array of the final tags (no explanation):
                 "document_date": metadata.get("document_date"),  # Can be null
                 "document_type": metadata.get("document_type", "Unknown")[:100],
                 "summary": metadata.get("summary", "")[:1000],
-                "suggested_tags": metadata.get("suggested_tags", [])[:10],  # Max 10 tags
+                "suggested_tags": _answered_tags(metadata.get("suggested_tags")),
             }
         except (ValueError, TypeError, AttributeError) as e:
             # The reply wasn't the JSON object we asked for.
@@ -204,14 +214,14 @@ Respond ONLY with a JSON array of the final tags (no explanation):
             return self._get_empty_metadata()
 
     def _get_empty_metadata(self) -> Dict[str, Any]:
-        """Return empty metadata structure."""
+        """Metadata for a reply that said nothing usable: every field its "I don't know"."""
         return {
             "title": "Unknown",
             "correspondent": "Unknown",
             "document_date": None,
             "document_type": "Unknown",
             "summary": "",
-            "suggested_tags": [],
+            "suggested_tags": None,  # Answered nothing, which is not "no tags apply".
         }
 
     def rewrite_query(
@@ -304,6 +314,19 @@ Instructions:
         except ModelError as e:
             logger.error(f"Failed to generate answer with {self.model!r}: {e}")
             return ANSWER_ERROR_TEXT
+
+
+def _answered_tags(value: Any) -> Optional[List[str]]:
+    """The tags in a parsed reply: a list when the model answered, None when it did not.
+
+    An empty list is an answer — no tag applies to this document — and the Document's
+    tags are cleared on it. A reply with no tags key, or with something that is not a
+    list under it, answered nothing, and the tags it has are left alone. Names are not
+    cleaned here; `processing.tags.replace_tags` owns that. See ADR 0010.
+    """
+    if not isinstance(value, list):
+        return None
+    return [tag for tag in value if isinstance(tag, str)][:MAX_TAGS]
 
 
 def _strip_code_fences(text: str) -> str:

@@ -121,7 +121,8 @@ class StageResult:
     """What a finished stage asks the runner to do. No stage writes anything itself.
 
     `status` of None leaves the Document where it is, and emits no status event.
-    `tags` of None leaves the Document's tags alone; a list replaces them entirely.
+    `tags` of None leaves the Document's tags alone; a list replaces them entirely,
+    and an empty list is a list — it clears them.
     `outcome` and `info` become the task's return value.
     """
 
@@ -286,8 +287,11 @@ def run_metadata(
     """Ask the assistant model what this Document is, and say what to record.
 
     The model sees the tags the archive already has so it prefers them over coining a
-    synonym. An empty suggestion list means "nothing to add", never "clear what is
-    there", so `tags` stays None and the Document keeps the tags it has.
+    synonym. What it says about tags is three-valued: a list replaces the Document's
+    tags, an empty list is the model answering that none apply and clears them, and
+    None — it answered nothing, because the reply would not parse or left the key out —
+    leaves them alone. Nothing here infers which of those happened from list length;
+    `extract_metadata` says (ADR 0010).
     """
     from app.services.assistant_service import AssistantService
 
@@ -329,15 +333,16 @@ def run_metadata(
         if not (current_description or "").strip():
             fields["description"] = summary
 
-    suggested_tags = metadata.get("suggested_tags") or []
+    suggested_tags = metadata.get("suggested_tags")
 
     return StageResult(
         status=ProcessingStatus.LLM_COMPLETE,
         fields=fields,
-        tags=list(suggested_tags) or None,
+        tags=list(suggested_tags) if suggested_tags is not None else None,
         notify_updated=True,
-        # The runner writes the tags, so it overwrites the count once they have landed.
-        info={"metadata": metadata, "tags_added": 0},
+        # The runner writes the tags, and reports how many landed when it wrote any;
+        # a run that touched no tags reports no count rather than a count of zero.
+        info={"metadata": metadata},
     )
 
 
