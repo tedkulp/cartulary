@@ -103,9 +103,8 @@ run only with `pytest --live` (`just test-live`).
 
 A Document goes through **stages**: it is read (OCR), made searchable (embedding), then
 described (metadata extraction). That machine is `app/processing/`: every transition, and
-every stage's own rules, are decided there and nowhere else. Starting processing is not
-there yet — bare status strings and `.delay()` calls still sit in the API routes, the
-watchers and the intake service, and collapse into one entry point in a later slice.
+every stage's own rules, are decided there and nowhere else. Starting one is
+`enqueue_stage`, and nothing else reaches the broker.
 
 - `stages.py` is the machine and is **pure**: `ProcessingStatus` (a `StrEnum` whose seven
   members are the exact strings stored in `documents.processing_status`, which is why the
@@ -123,6 +122,18 @@ watchers and the intake service, and collapse into one entry point in a later sl
   enqueueing is a callable passed in — so a test drives it with no broker.
 - Each Celery task in `app/tasks/document_tasks.py` is a two-line adapter naming its stage.
   Task names are unchanged, so queued work survives a deploy. There is no `autoretry_for`.
+- `queue.py` is the one entry point: `enqueue_stage(document_id, stage, **options)` names
+  the task a stage is queued as, returns the Celery result (the reprocess and regenerate
+  routes answer with its `task_id`), and refuses an option the stage does not take —
+  `force_ocr` and `refresh_cache` belong to OCR alone. It is the only module in the
+  package that imports `app.tasks`; **no route, service or watcher calls `.delay()`**, and
+  `tests/test_processing_queue.py` fails if one starts to. Reprocessing is `Stage.OCR`
+  with `force_ocr`, so `reprocess_document` is now only a name kept registered for work
+  queued before the deploy.
+- `should_reembed(document)` in `stages.py` is the one answer to "is this Document
+  embedded enough that editing its metadata should re-embed it" — true at
+  `embedding_complete` and `llm_complete`. The title/description edit and both tag routes
+  ask it rather than carrying a copy of the status list.
 
 - `chunking.py` splits the text the embedding stage embeds, and is pure: `chunk(text,
   size, overlap)`, with `EMBEDDING_CHUNK_SIZE` and `EMBEDDING_CHUNK_OVERLAP` passed in by
@@ -222,6 +233,8 @@ never disagree. Semantic search is ORM, not raw SQL, for this reason; see ADR 00
 - TypeScript strict, functional components, hooks.
 - Shared code goes in `packages/shared` — API services, types, stores — and is imported from
   `@cartulary/shared` by both apps. Web-only or mobile-only code stays in its app.
+- A Document's processing status is the `ProcessingStatus` union from `@cartulary/shared`,
+  the same seven values as the backend enum. Switch on it; never on a bare string.
 - API calls live in `services/`, never in components; state in Zustand stores.
 - Files: `PascalCase.tsx` for components, `useThing.ts` for hooks,
   `thing.service.ts` for services, `camelCase.ts` for stores and types.

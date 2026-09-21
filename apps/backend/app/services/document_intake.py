@@ -21,9 +21,10 @@ NotifyDocumentCreated = Callable[[UUID, UUID, Optional[UUID]], object]
 
 
 def _enqueue_document(document_id: str) -> object:
-    from app.tasks.document_tasks import process_document
+    from app.processing import Stage
+    from app.processing.queue import enqueue_stage
 
-    return process_document.delay(document_id)
+    return enqueue_stage(document_id, Stage.OCR)
 
 
 def _notify_document_created(

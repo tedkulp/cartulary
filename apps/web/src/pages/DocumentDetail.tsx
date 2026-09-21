@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useDocumentDetail, useWebSocket, useAuthStore, useCapabilityStore } from '@cartulary/shared'
 import { documentService, tagService, websocketService } from '../services'
-import type { Tag } from '@cartulary/shared'
+import type { ProcessingStatus, Tag } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -303,7 +303,7 @@ export default function DocumentDetail() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const getStatusColor = (status: string) => {
+  const getStatusColor = (status: ProcessingStatus) => {
     switch (status) {
       case 'pending':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
@@ -321,7 +321,7 @@ export default function DocumentDetail() {
     }
   }
 
-  const formatStatus = (status: string) => {
+  const formatStatus = (status: ProcessingStatus) => {
     return status
       .replace(/_/g, ' ')
       .replace(/ocr/gi, 'OCR')

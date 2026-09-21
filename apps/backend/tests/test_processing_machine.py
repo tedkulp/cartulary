@@ -5,11 +5,12 @@ no database. The table is the whole description of the machine, so a test that o
 sampled it would leave the interesting rows unread.
 """
 import itertools
+from types import SimpleNamespace
 from typing import Optional
 
 import pytest
 
-from app.processing import ProcessingStatus, Stage, next_stage
+from app.processing import ProcessingStatus, Stage, next_stage, should_reembed
 
 CAPABILITIES = list(itertools.product([False, True], repeat=2))
 
@@ -97,3 +98,41 @@ class TestNextStage:
     ) -> None:
         """Total over its domain: no status by capability pair raises or falls through."""
         assert next_stage(status, has_embedder, has_assistant) in (None, *Stage)
+
+
+class TestShouldReembed:
+    """Whether a metadata edit is worth re-embedding over, written once for three routes.
+
+    A Document has embeddings to go stale only once it has been embedded; earlier
+    statuses are on their way there anyway, and the ends that never got there have
+    nothing to refresh.
+    """
+
+    @pytest.mark.parametrize(
+        "status,expected",
+        [
+            (ProcessingStatus.PENDING, False),
+            (ProcessingStatus.PROCESSING, False),
+            (ProcessingStatus.OCR_COMPLETE, False),
+            (ProcessingStatus.OCR_FAILED, False),
+            (ProcessingStatus.EMBEDDING_COMPLETE, True),
+            (ProcessingStatus.LLM_COMPLETE, True),
+            (ProcessingStatus.FAILED, False),
+        ],
+    )
+    def test_only_an_embedded_document_is_worth_re_embedding(
+        self, status: ProcessingStatus, expected: bool
+    ) -> None:
+        assert should_reembed(SimpleNamespace(processing_status=status)) is expected
+
+    @pytest.mark.parametrize("status", list(ProcessingStatus))
+    def test_a_status_read_back_as_a_bare_string_answers_the_same(
+        self, status: ProcessingStatus
+    ) -> None:
+        """Rows load as `str`, so the predicate must not depend on getting the enum."""
+        assert should_reembed(SimpleNamespace(processing_status=status.value)) is (
+            should_reembed(SimpleNamespace(processing_status=status))
+        )
+
+    def test_a_status_from_outside_the_vocabulary_is_not_re_embedded(self) -> None:
+        assert should_reembed(SimpleNamespace(processing_status="something_else")) is False

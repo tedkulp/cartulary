@@ -239,20 +239,18 @@ export default function DocumentsScreen() {
 
               <View style={styles.tagsRow}>
                 {/* Status tag */}
-                {item.processing_status !== 'completed' && (
-                  <View
-                    style={[
-                      styles.statusTag,
-                      item.processing_status === 'pending' && styles.statusPending,
-                      item.processing_status === 'processing' && styles.statusProcessing,
-                      item.processing_status === 'failed' && styles.statusFailed,
-                    ]}
-                  >
-                    <Text variant="bodySmall" style={styles.statusTagText}>
-                      {item.processing_status}
-                    </Text>
-                  </View>
-                )}
+                <View
+                  style={[
+                    styles.statusTag,
+                    item.processing_status === 'pending' && styles.statusPending,
+                    item.processing_status === 'processing' && styles.statusProcessing,
+                    item.processing_status === 'failed' && styles.statusFailed,
+                  ]}
+                >
+                  <Text variant="bodySmall" style={styles.statusTagText}>
+                    {item.processing_status}
+                  </Text>
+                </View>
 
                 {/* Regular tags */}
                 {item.tags && item.tags.length > 0 && (

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { sharingService } from '../services'
-import type { SharedDocument } from '@cartulary/shared'
+import type { ProcessingStatus, SharedDocument } from '@cartulary/shared'
 import { toast } from 'sonner'
 import { Eye, Loader2, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -88,12 +88,11 @@ export default function SharedDocuments() {
     }
   }
 
-  const getStatusBadge = (status?: string) => {
+  const getStatusBadge = (status?: ProcessingStatus) => {
     if (!status) return null
 
     switch (status) {
       case 'llm_complete':
-      case 'complete':
         return (
           <Badge variant="default" className="bg-green-600">
             Ready

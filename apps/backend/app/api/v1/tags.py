@@ -12,6 +12,8 @@ from app.dependencies import get_current_user, get_db
 from app.models.document import Document
 from app.models.tag import Tag
 from app.models.user import User
+from app.processing import Stage, should_reembed
+from app.processing.queue import enqueue_stage
 from app.schemas.tag import DocumentTagRequest, TagCreate, TagResponse, TagUpdate
 from app.services.notification_service import notification_service
 
@@ -199,11 +201,10 @@ async def add_tags_to_document(
     except Exception as e:
         logger.error(f"Failed to notify document update: {e}", exc_info=True)
 
-    # Trigger re-embedding if tags were added and document has embeddings
-    if tags_added and document.processing_status in ['embedding_complete', 'llm_complete']:
-        from app.tasks.document_tasks import generate_embeddings
+    # Tags are part of the embedded text, so an added one goes stale until re-embedded
+    if tags_added and should_reembed(document):
         logger.info(f"Triggering re-embedding for document {document_id} due to tag addition")
-        generate_embeddings.delay(str(document_id))
+        enqueue_stage(str(document_id), Stage.EMBEDDING)
 
     return {"message": "Tags added successfully", "tag_count": len(tags)}
 
@@ -244,8 +245,7 @@ async def remove_tag_from_document(
         except Exception as e:
             logger.error(f"Failed to notify document update (tag removed): {e}", exc_info=True)
 
-        # Trigger re-embedding if tag was removed and document has embeddings
-        if tag_removed and document.processing_status in ['embedding_complete', 'llm_complete']:
-            from app.tasks.document_tasks import generate_embeddings
+        # Same as adding one: the removed tag is still in the embedded text until then
+        if tag_removed and should_reembed(document):
             logger.info(f"Triggering re-embedding for document {document_id} due to tag removal")
-            generate_embeddings.delay(str(document_id))
+            enqueue_stage(str(document_id), Stage.EMBEDDING)

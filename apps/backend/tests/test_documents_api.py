@@ -11,6 +11,7 @@ from fastapi import UploadFile
 
 from app.api.v1 import documents
 from app.core.exceptions import DuplicateError
+from app.processing import Stage
 from app.schemas.document import DocumentUpdate
 from tests.fakes import FakeEmbedder, ScriptedChatModel
 
@@ -29,11 +30,11 @@ def _document(processing_status: str) -> SimpleNamespace:
 
 @pytest.fixture
 def enqueue_embeddings() -> Iterator[MagicMock]:
-    """Stub out notifications and yield the mocked generate_embeddings.delay."""
+    """Stub out notifications and yield the mocked entry point into processing."""
     with patch.object(
         documents.notification_service, "notify_document_updated", new=AsyncMock()
-    ), patch("app.tasks.document_tasks.generate_embeddings.delay") as delay:
-        yield delay
+    ), patch.object(documents, "enqueue_stage") as enqueue:
+        yield enqueue
 
 
 class TestUpdateDocument:
@@ -57,7 +58,7 @@ class TestUpdateDocument:
 
         assert result.title == "New title"
         db.commit.assert_called_once()
-        enqueue_embeddings.assert_called_once_with(str(document.id))
+        enqueue_embeddings.assert_called_once_with(str(document.id), Stage.EMBEDDING)
 
     @pytest.mark.asyncio
     async def test_is_public_change_does_not_reembed(
@@ -159,7 +160,7 @@ class TestRegenerateEmbeddings:
 
         documents.regenerate_embeddings(document_id=document.id, document=document)
 
-        enqueue_embeddings.assert_called_once_with(str(document.id))
+        enqueue_embeddings.assert_called_once_with(str(document.id), Stage.EMBEDDING)
 
     def test_refuses_a_document_with_no_text(
         self, enqueue_embeddings: MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -180,8 +181,8 @@ class TestRegenerateMetadata:
 
     @pytest.fixture
     def enqueue_metadata(self) -> Iterator[MagicMock]:
-        with patch("app.tasks.document_tasks.extract_metadata.delay") as delay:
-            yield delay
+        with patch.object(documents, "enqueue_stage") as enqueue:
+            yield enqueue
 
     def test_refuses_when_no_assistant_model(
         self, enqueue_metadata: MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -205,7 +206,7 @@ class TestRegenerateMetadata:
 
         documents.regenerate_metadata(document_id=document.id, document=document)
 
-        enqueue_metadata.assert_called_once_with(str(document.id))
+        enqueue_metadata.assert_called_once_with(str(document.id), Stage.METADATA)
 
     def test_refuses_a_document_with_no_text(
         self, enqueue_metadata: MagicMock, monkeypatch: pytest.MonkeyPatch
@@ -219,3 +220,82 @@ class TestRegenerateMetadata:
 
         assert raised.value.status_code == 400
         enqueue_metadata.assert_not_called()
+
+
+class TestReprocess:
+    """Both reprocess routes: the payload they answer with, and what they queue.
+
+    Reprocessing is `Stage.OCR` with `force_ocr` — the same entry point as every other
+    start, rather than a task of its own — and the answer still carries the task id.
+    """
+
+    @pytest.fixture
+    def enqueue_ocr(self) -> Iterator[MagicMock]:
+        with patch.object(documents, "enqueue_stage") as enqueue:
+            enqueue.return_value = SimpleNamespace(id="task-7")
+            yield enqueue
+
+    def _document(self, **overrides) -> SimpleNamespace:
+        values = {"id": uuid.uuid4(), "ocr_text_manually_edited": False}
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def test_reprocess_forces_ocr_and_reports_the_task(self, enqueue_ocr: MagicMock) -> None:
+        document = self._document()
+
+        answer = documents.reprocess_document(
+            document_id=document.id, refresh_cache=False, document=document
+        )
+
+        enqueue_ocr.assert_called_once_with(
+            str(document.id), Stage.OCR, force_ocr=True, refresh_cache=False
+        )
+        assert answer == {
+            "message": "Document reprocessing triggered",
+            "document_id": str(document.id),
+            "task_id": "task-7",
+        }
+
+    def test_reprocess_passes_on_a_cache_refresh(self, enqueue_ocr: MagicMock) -> None:
+        """`refresh_cache` reads every page with the models again, so it must survive."""
+        document = self._document()
+
+        documents.reprocess_document(
+            document_id=document.id, refresh_cache=True, document=document
+        )
+
+        enqueue_ocr.assert_called_once_with(
+            str(document.id), Stage.OCR, force_ocr=True, refresh_cache=True
+        )
+
+    def test_reprocess_refuses_to_overwrite_a_manual_edit(self, enqueue_ocr: MagicMock) -> None:
+        document = self._document(ocr_text_manually_edited=True)
+
+        with pytest.raises(HTTPException) as raised:
+            documents.reprocess_document(
+                document_id=document.id, refresh_cache=False, document=document
+            )
+
+        assert raised.value.status_code == 409
+        enqueue_ocr.assert_not_called()
+
+    def test_force_reprocess_clears_the_edit_flag_then_queues_ocr(
+        self, enqueue_ocr: MagicMock
+    ) -> None:
+        document = self._document(ocr_text_manually_edited=True)
+        db = MagicMock()
+
+        answer = documents.force_reprocess_document(
+            document_id=document.id, refresh_cache=True, document=document, db=db
+        )
+
+        assert document.ocr_text_manually_edited is False
+        db.commit.assert_called_once()
+        enqueue_ocr.assert_called_once_with(
+            str(document.id), Stage.OCR, force_ocr=True, refresh_cache=True
+        )
+        assert answer == {
+            "message": "Document reprocessing triggered (manual edits will be overwritten)",
+            "document_id": str(document.id),
+            "task_id": "task-7",
+        }

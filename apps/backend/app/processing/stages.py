@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence
 
 from app.processing import chunking
 from app.providers.ports import ChatModel, Embedder
@@ -73,6 +73,31 @@ def next_stage(
         return Stage.METADATA if has_assistant else None
     # processing is in flight; ocr_failed, llm_complete and failed are the ends.
     return None
+
+
+#: The statuses at which a Document has embeddings that an edit can make stale.
+#: Anything earlier is on its way to being embedded and will pick the edit up; the ends
+#: that never got there have nothing to refresh.
+EMBEDDED: tuple[ProcessingStatus, ...] = (
+    ProcessingStatus.EMBEDDING_COMPLETE,
+    ProcessingStatus.LLM_COMPLETE,
+)
+
+
+class HasProcessingStatus(Protocol):
+    """A Document, as this predicate needs to see one."""
+
+    processing_status: str
+
+
+def should_reembed(document: HasProcessingStatus) -> bool:
+    """Whether editing this Document's metadata is worth re-embedding it over.
+
+    Written once, for the three routes — a title or description edit, a tag added, a
+    tag removed — that used to carry a copy of the status list. A row loads its status
+    as a plain string, so the comparison is by value and not by enum identity.
+    """
+    return document.processing_status in EMBEDDED
 
 
 @dataclass(frozen=True)

@@ -123,5 +123,11 @@ _Avoid_: segment, passage, fragment, page
 **Runner**:
 What runs one stage over one Document: the session, the models, the transaction, the status
 event with the state read from the row, and what to enqueue next. The only part of
-processing that touches the database or the queue.
+processing that touches the database, and it reaches the queue only through the entry point.
 _Avoid_: orchestrator, pipeline, worker
+
+**Entry point**:
+`enqueue_stage(document_id, stage, **options)`: the one way a stage becomes queued work.
+Everything that starts processing — a route, the intake service, the runner handing a
+Document on — names a stage and calls it, and nothing else knows a Celery task by name.
+_Avoid_: trigger, dispatch, kick off

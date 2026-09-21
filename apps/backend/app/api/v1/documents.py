@@ -25,6 +25,8 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.document import Document
+from app.processing import Stage, should_reembed
+from app.processing.queue import enqueue_stage
 from app.providers.factory import get_assistant_model, get_embedder
 from app.schemas.document import DocumentResponse, DocumentUpdate, DocumentOCRTextUpdate
 from app.services.document_intake import DocumentIntakeService
@@ -235,10 +237,9 @@ def reprocess_document(
             }
         )
     
-    # Trigger reprocessing
-    from app.tasks.document_tasks import reprocess_document as reprocess_task
-
-    task = reprocess_task.delay(str(document_id), refresh_cache=refresh_cache)
+    task = enqueue_stage(
+        str(document_id), Stage.OCR, force_ocr=True, refresh_cache=refresh_cache
+    )
 
     return {
         "message": "Document reprocessing triggered",
@@ -292,10 +293,9 @@ def force_reprocess_document(
     document.ocr_text_manually_edited = False
     db.commit()
     
-    # Trigger reprocessing
-    from app.tasks.document_tasks import reprocess_document as reprocess_task
-
-    task = reprocess_task.delay(str(document_id), refresh_cache=refresh_cache)
+    task = enqueue_stage(
+        str(document_id), Stage.OCR, force_ocr=True, refresh_cache=refresh_cache
+    )
 
     return {
         "message": "Document reprocessing triggered (manual edits will be overwritten)",
@@ -330,10 +330,7 @@ def regenerate_embeddings(
             TURN_ON_EMBEDDER,
         )
 
-    # Trigger embedding generation
-    from app.tasks.document_tasks import generate_embeddings
-
-    task = generate_embeddings.delay(str(document_id))
+    task = enqueue_stage(str(document_id), Stage.EMBEDDING)
 
     return {
         "message": "Embedding generation triggered",
@@ -368,10 +365,7 @@ def regenerate_metadata(
             TURN_ON_ASSISTANT_MODEL,
         )
 
-    # Trigger metadata extraction
-    from app.tasks.document_tasks import extract_metadata
-
-    task = extract_metadata.delay(str(document_id))
+    task = enqueue_stage(str(document_id), Stage.METADATA)
 
     return {
         "message": "Metadata extraction triggered",
@@ -412,11 +406,10 @@ async def update_document(
     # Notify document update
     await notification_service.notify_document_updated(document.id, document.owner_id)
 
-    # Trigger re-embedding if title or description changed
-    if needs_reembedding and document.processing_status in ['embedding_complete', 'llm_complete']:
-        from app.tasks.document_tasks import generate_embeddings
+    # Re-embed when the edit changed what gets embedded, and there is something to refresh
+    if needs_reembedding and should_reembed(document):
         logger.info(f"Triggering re-embedding for document {document_id} due to metadata update")
-        generate_embeddings.delay(str(document_id))
+        enqueue_stage(str(document_id), Stage.EMBEDDING)
 
     return document
 

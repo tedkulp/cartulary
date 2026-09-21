@@ -12,19 +12,11 @@ raising. Making `ModelError` retryable is its own issue.
 import logging
 
 from app.processing import Stage
+from app.processing.queue import enqueue_stage
 from app.processing.runner import run_stage
 from app.tasks.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
-
-
-def enqueue_stage(document_id: str, stage: Stage) -> None:
-    """Queue the next stage for a document: where the runner meets Celery.
-
-    The `.delay()` calls still scattered through the API routes, the watchers and the
-    intake service collapse into this in a later slice.
-    """
-    _TASK_FOR[stage].delay(document_id)
 
 
 @celery_app.task(bind=True, name="app.tasks.process_document")
@@ -45,8 +37,9 @@ def process_document(
 def reprocess_document(document_id: str, refresh_cache: bool = False) -> dict:
     """Read a document again, forcing OCR even where the file has embedded text.
 
-    `refresh_cache` reads every page with the models again rather than reusing what
-    the page cache holds, for when the models are suspected of a bad read.
+    Nothing queues this any more: reprocessing is `Stage.OCR` with `force_ocr`, like
+    every other entry point. The name stays registered so a reprocess queued before
+    this deploy still finds a task to run.
     """
     logger.info(f"Reprocessing document {document_id} (forcing OCR)")
     return process_document(document_id, force_ocr=True, refresh_cache=refresh_cache)
@@ -64,7 +57,9 @@ def extract_metadata(self, document_id: str) -> dict:
     return run_stage(document_id, Stage.METADATA, enqueue=enqueue_stage)
 
 
-_TASK_FOR = {
+#: The task each stage is queued as. `app.processing.queue` reads this, and is the
+#: only thing that does; nothing else here decides what runs next.
+TASK_FOR = {
     Stage.OCR: process_document,
     Stage.EMBEDDING: generate_embeddings,
     Stage.METADATA: extract_metadata,

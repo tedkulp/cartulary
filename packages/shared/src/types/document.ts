@@ -18,6 +18,20 @@ export interface TagUpdate {
   description?: string
 }
 
+/**
+ * Where a Document is in processing: the seven statuses the backend stores, and the
+ * same vocabulary as `ProcessingStatus` in `app/processing/stages.py`. Anything that
+ * renders a status switches on this rather than on bare strings.
+ */
+export type ProcessingStatus =
+  | 'pending'
+  | 'processing'
+  | 'ocr_complete'
+  | 'ocr_failed'
+  | 'embedding_complete'
+  | 'llm_complete'
+  | 'failed'
+
 export interface Document {
   id: string
   title: string
@@ -27,7 +41,7 @@ export interface Document {
   mime_type: string
   file_extension: string
   checksum: string
-  processing_status: string
+  processing_status: ProcessingStatus
   ocr_text?: string
   ocr_text_manually_edited: boolean
   created_at: string

@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useDocuments, useWebSocket, useAuthStore, useCapabilityStore, apiErrorMessage } from '@cartulary/shared'
 import { documentService, searchService, tagService, websocketService } from '../services'
-import type { Document, Tag, SearchMode, SearchResult } from '@cartulary/shared'
+import type { Document, ProcessingStatus, Tag, SearchMode, SearchResult } from '@cartulary/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -395,7 +395,7 @@ export default function DocumentsList() {
     }
   }, [selectedIds])
 
-  const getStatusColor = useCallback((status: string) => {
+  const getStatusColor = useCallback((status: ProcessingStatus) => {
     switch (status) {
       case 'pending':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
@@ -413,7 +413,7 @@ export default function DocumentsList() {
     }
   }, [])
 
-  const formatStatus = (status: string) => {
+  const formatStatus = (status: ProcessingStatus) => {
     return status
       .replace(/_/g, ' ')
       .replace(/ocr/gi, 'OCR')
