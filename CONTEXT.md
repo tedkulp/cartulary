@@ -107,6 +107,14 @@ seven: pending, processing, ocr_complete, ocr_failed, embedding_complete, llm_co
 failed. Nothing infers it from what the Document holds. See ADR 0006.
 _Avoid_: state, processing state
 
+**Processing status group**:
+What a processing status means to someone reading it: queued, in flight, stage complete,
+complete, failed. Defined once in `@cartulary/shared` beside the status itself, so web and
+mobile share the reading and differ only in how they paint it. `stage_complete` and
+`complete` stay apart because a Document that has only been read is not one that has been
+described, and a surface saying "ready" may only say it of `complete`.
+_Avoid_: status category, status kind
+
 **Stage result**:
 What a finished stage asks for: the fields to write, the status to move to, the chunks or
 tags to replace, and whether clients should hear the Document changed. A stage returns one;

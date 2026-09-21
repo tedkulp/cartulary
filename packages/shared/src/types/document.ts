@@ -32,6 +32,55 @@ export type ProcessingStatus =
   | 'llm_complete'
   | 'failed'
 
+/**
+ * What a status means to a reader: the seven statuses grouped by the distinctions
+ * anything rendering one actually draws. `stage_complete` and `complete` are apart
+ * because a Document that has only been read is not one that has been described —
+ * a surface that says "ready" may only say it of `complete`. This is the decision
+ * each app was making for itself; the app maps the group to its own vocabulary —
+ * Tailwind classes on web, `StyleSheet` entries on mobile — and no app repeats the
+ * cascade.
+ */
+export type ProcessingStatusGroup =
+  | 'queued'
+  | 'in_flight'
+  | 'stage_complete'
+  | 'complete'
+  | 'failed'
+
+/**
+ * The group a status belongs to. Exhaustive over `ProcessingStatus`, so adding a
+ * status is a compile error here and nowhere else.
+ */
+export function processingStatusGroup(status: ProcessingStatus): ProcessingStatusGroup {
+  switch (status) {
+    case 'pending':
+      return 'queued'
+    case 'processing':
+      return 'in_flight'
+    case 'ocr_complete':
+    case 'embedding_complete':
+      return 'stage_complete'
+    case 'llm_complete':
+      return 'complete'
+    case 'ocr_failed':
+    case 'failed':
+      return 'failed'
+  }
+}
+
+/**
+ * How a status reads on screen: underscores to spaces, upper case, with OCR and LLM
+ * kept as the acronyms they are.
+ */
+export function formatProcessingStatus(status: ProcessingStatus): string {
+  return status
+    .replace(/_/g, ' ')
+    .replace(/ocr/gi, 'OCR')
+    .replace(/llm/gi, 'LLM')
+    .toUpperCase()
+}
+
 export interface Document {
   id: string
   title: string

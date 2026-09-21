@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { sharingService } from '../services'
+import { processingStatusGroup } from '@cartulary/shared'
 import type { ProcessingStatus, SharedDocument } from '@cartulary/shared'
 import { toast } from 'sonner'
 import { Eye, Loader2, Inbox } from 'lucide-react'
@@ -91,18 +92,21 @@ export default function SharedDocuments() {
   const getStatusBadge = (status?: ProcessingStatus) => {
     if (!status) return null
 
-    switch (status) {
-      case 'llm_complete':
+    // A recipient is told a document is ready only when it is fully described, so
+    // this page reads `complete` rather than any finished stage.
+    switch (processingStatusGroup(status)) {
+      case 'complete':
         return (
           <Badge variant="default" className="bg-green-600">
             Ready
           </Badge>
         )
-      case 'processing':
+      case 'in_flight':
         return <Badge variant="secondary">Processing</Badge>
       case 'failed':
         return <Badge variant="destructive">Failed</Badge>
-      default:
+      case 'queued':
+      case 'stage_complete':
         return <Badge variant="outline">{status}</Badge>
     }
   }

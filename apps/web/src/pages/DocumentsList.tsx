@@ -1,8 +1,16 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useDocuments, useWebSocket, useAuthStore, useCapabilityStore, apiErrorMessage } from '@cartulary/shared'
+import {
+  useDocuments,
+  useWebSocket,
+  useAuthStore,
+  useCapabilityStore,
+  apiErrorMessage,
+  formatProcessingStatus,
+} from '@cartulary/shared'
 import { documentService, searchService, tagService, websocketService } from '../services'
-import type { Document, ProcessingStatus, Tag, SearchMode, SearchResult } from '@cartulary/shared'
+import type { Document, Tag, SearchMode, SearchResult } from '@cartulary/shared'
+import { processingStatusClasses } from '@/lib/processingStatus'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -394,32 +402,6 @@ export default function DocumentsList() {
       setBulkActionLoading(false)
     }
   }, [selectedIds])
-
-  const getStatusColor = useCallback((status: ProcessingStatus) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
-      case 'processing':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
-      case 'ocr_complete':
-      case 'embedding_complete':
-      case 'llm_complete':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-      case 'failed':
-      case 'ocr_failed':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
-    }
-  }, [])
-
-  const formatStatus = (status: ProcessingStatus) => {
-    return status
-      .replace(/_/g, ' ')
-      .replace(/ocr/gi, 'OCR')
-      .replace(/llm/gi, 'LLM')
-      .toUpperCase()
-  }
 
   if (loading && documents.length === 0) {
     return (
@@ -817,8 +799,8 @@ export default function DocumentsList() {
                       </TableCell>
                       <TableCell>{formatFileSize(doc.file_size)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline-nowrap" className={getStatusColor(doc.processing_status)}>
-                          {formatStatus(doc.processing_status)}
+                        <Badge variant="outline-nowrap" className={processingStatusClasses(doc.processing_status)}>
+                          {formatProcessingStatus(doc.processing_status)}
                         </Badge>
                       </TableCell>
                       <TableCell>

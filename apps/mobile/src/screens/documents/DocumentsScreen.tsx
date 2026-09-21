@@ -20,7 +20,28 @@ import { useDocumentStore } from '@stores/documentStore';
 import { useNavigation } from '@react-navigation/native';
 import { formatFileSize, formatRelativeTime } from '@utils/helpers';
 import { COLORS } from '@config/constants';
+import { processingStatusGroup } from '@cartulary/shared';
+import type { ProcessingStatusGroup } from '@cartulary/shared';
 import type { Document } from '../../types/api';
+
+/**
+ * The status tag's look, one entry per group from `@cartulary/shared`. A document
+ * that has finished a stage gets the plain tag, so only the states worth noticing
+ * are coloured.
+ */
+function statusTagStyle(group: ProcessingStatusGroup) {
+  switch (group) {
+    case 'queued':
+      return styles.statusPending;
+    case 'in_flight':
+      return styles.statusProcessing;
+    case 'failed':
+      return styles.statusFailed;
+    case 'stage_complete':
+    case 'complete':
+      return undefined;
+  }
+}
 
 export default function DocumentsScreen() {
   const navigation = useNavigation<any>();
@@ -187,6 +208,7 @@ export default function DocumentsScreen() {
 
   const renderDocument = ({ item }: { item: Document }) => {
     let swipeableRef: Swipeable | null = null;
+    const statusGroup = processingStatusGroup(item.processing_status);
 
     return (
       <Swipeable
@@ -207,11 +229,11 @@ export default function DocumentsScreen() {
           >
           <View style={styles.itemLeft}>
             {/* File type icon */}
-            <View style={[styles.iconContainer, item.processing_status === 'failed' && styles.iconContainerError]}>
+            <View style={[styles.iconContainer, statusGroup === 'failed' && styles.iconContainerError]}>
               <IconButton
                 icon={item.mime_type.includes('pdf') ? 'file-pdf-box' : 'image'}
                 size={24}
-                iconColor={item.processing_status === 'failed' ? COLORS.error : COLORS.primary}
+                iconColor={statusGroup === 'failed' ? COLORS.error : COLORS.primary}
                 style={styles.fileIcon}
               />
             </View>
@@ -239,14 +261,7 @@ export default function DocumentsScreen() {
 
               <View style={styles.tagsRow}>
                 {/* Status tag */}
-                <View
-                  style={[
-                    styles.statusTag,
-                    item.processing_status === 'pending' && styles.statusPending,
-                    item.processing_status === 'processing' && styles.statusProcessing,
-                    item.processing_status === 'failed' && styles.statusFailed,
-                  ]}
-                >
+                <View style={[styles.statusTag, statusTagStyle(statusGroup)]}>
                   <Text variant="bodySmall" style={styles.statusTagText}>
                     {item.processing_status}
                   </Text>

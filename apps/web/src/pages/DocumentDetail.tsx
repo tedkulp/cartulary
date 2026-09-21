@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useDocumentDetail, useWebSocket, useAuthStore, useCapabilityStore } from '@cartulary/shared'
+import {
+  useDocumentDetail,
+  useWebSocket,
+  useAuthStore,
+  useCapabilityStore,
+  formatProcessingStatus,
+} from '@cartulary/shared'
 import { documentService, tagService, websocketService } from '../services'
-import type { ProcessingStatus, Tag } from '@cartulary/shared'
+import type { Tag } from '@cartulary/shared'
+import { processingStatusClasses } from '@/lib/processingStatus'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -303,32 +310,6 @@ export default function DocumentDetail() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }
 
-  const getStatusColor = (status: ProcessingStatus) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
-      case 'processing':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
-      case 'ocr_complete':
-      case 'embedding_complete':
-      case 'llm_complete':
-        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
-      case 'failed':
-      case 'ocr_failed':
-        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
-      default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
-    }
-  }
-
-  const formatStatus = (status: ProcessingStatus) => {
-    return status
-      .replace(/_/g, ' ')
-      .replace(/ocr/gi, 'OCR')
-      .replace(/llm/gi, 'LLM')
-      .toUpperCase()
-  }
-
   if (loading) {
     return (
       <div className="flex justify-center p-12">
@@ -520,8 +501,8 @@ export default function DocumentDetail() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Status</p>
-              <Badge variant="outline" className={getStatusColor(document.processing_status)}>
-                {formatStatus(document.processing_status)}
+              <Badge variant="outline" className={processingStatusClasses(document.processing_status)}>
+                {formatProcessingStatus(document.processing_status)}
               </Badge>
             </div>
           </div>
