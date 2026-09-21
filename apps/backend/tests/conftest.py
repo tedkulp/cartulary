@@ -123,6 +123,14 @@ def db_engine():
 
     Base.metadata.create_all(engine)
 
+    # create_all() skips a table it already finds, so an index added to an existing
+    # model never reaches a test database left from an earlier run. Ask for each one
+    # separately. A changed column still needs the database dropped.
+    with engine.begin() as connection:
+        for table in Base.metadata.tables.values():
+            for index in table.indexes:
+                index.create(connection, checkfirst=True)
+
     yield engine
 
     engine.dispose()

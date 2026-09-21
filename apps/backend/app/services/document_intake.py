@@ -6,10 +6,11 @@ import uuid
 from typing import Callable, Optional
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateError, InvalidDocumentError
-from app.models.document import Document
+from app.models.document import OWNER_CHECKSUM_INDEX, Document
 from app.processing import ProcessingStatus
 from app.services.storage_service import StorageService
 
@@ -77,14 +78,9 @@ class DocumentIntakeService:
             raise InvalidDocumentError("Document title cannot exceed 500 characters")
 
         checksum = hashlib.sha256(content).hexdigest()
-        existing = self.db.query(Document).filter(
-            Document.checksum == checksum,
-            Document.owner_id == owner_id,  # not an access check: deduplication
-        ).first()
-        if existing:
-            raise DuplicateError(
-                "Document already exists", detail={"document_id": str(existing.id)}
-            )
+        existing = self._existing_document(checksum, owner_id)
+        if existing is not None:
+            raise self._duplicate_of(existing)
 
         document_id = uuid.uuid4()
         try:
@@ -110,12 +106,24 @@ class DocumentIntakeService:
         try:
             self.db.add(document)
             self.db.commit()
+        except IntegrityError as error:
+            # The lookup above is advisory: another intake of the same bytes may have
+            # committed since. The unique index is what decides, so find the Document
+            # that won the race and report the duplicate the lookup would have.
+            self.db.rollback()
+            self._discard(stored.relative_path)
+            winner = (
+                self._existing_document(checksum, owner_id)
+                if self._checksum_conflict(error)
+                else None
+            )
+            if winner is None:
+                logger.exception("Document %s could not be inserted", document_id)
+                raise
+            raise self._duplicate_of(winner) from None
         except Exception:
             self.db.rollback()
-            try:
-                self.storage.delete_file(stored.relative_path)
-            except Exception:
-                logger.exception("Failed to remove stored file after database failure")
+            self._discard(stored.relative_path)
             raise
         try:
             self.enqueue(str(document.id))
@@ -138,3 +146,35 @@ class DocumentIntakeService:
         except Exception:
             logger.exception("Failed to publish creation of Document %s", document_id)
         return document
+
+    def _existing_document(
+        self, checksum: str, owner_id: UUID
+    ) -> Optional[Document]:
+        """The Document already holding these bytes for this Owner, if there is one."""
+        return self.db.query(Document).filter(
+            Document.checksum == checksum,
+            Document.owner_id == owner_id,  # not an access check: deduplication
+        ).first()
+
+    @staticmethod
+    def _checksum_conflict(error: IntegrityError) -> bool:
+        """Whether the per-Owner checksum index is what refused the insert.
+
+        A foreign key to a User deleted mid-intake is not a duplicate, and must not
+        be reported as one. A driver that names no constraint leaves the question to
+        the lookup that follows.
+        """
+        constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+        return constraint in {None, OWNER_CHECKSUM_INDEX}
+
+    @staticmethod
+    def _duplicate_of(existing: Document) -> DuplicateError:
+        return DuplicateError(
+            "Document already exists", detail={"document_id": str(existing.id)}
+        )
+
+    def _discard(self, relative_path: str) -> None:
+        try:
+            self.storage.delete_file(relative_path)
+        except Exception:
+            logger.exception("Failed to remove stored file after database failure")

@@ -10,9 +10,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -22,10 +24,25 @@ from app.database import Base
 from app.processing import ProcessingStatus
 
 
+# The index that makes "one Owner holds the same original bytes at most once" the
+# database's rule rather than intake's. See ADR 0009.
+OWNER_CHECKSUM_INDEX = "uq_documents_owner_checksum"
+
+
 class Document(Base):
     """Document model."""
 
     __tablename__ = "documents"
+
+    __table_args__ = (
+        Index(
+            OWNER_CHECKSUM_INDEX,
+            "owner_id",
+            "checksum",
+            unique=True,
+            postgresql_where=text("owner_id IS NOT NULL"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
@@ -36,7 +53,10 @@ class Document(Base):
     file_path = Column(String(1000), nullable=False)
     file_size = Column(BigInteger, nullable=False)
     mime_type = Column(String(100))
-    checksum = Column(String(64), index=True)  # SHA-256 hash for deduplication
+    # SHA-256 of the original source bytes. Intake computes it for every Document, so
+    # it is never NULL. Its own index stays: OWNER_CHECKSUM_INDEX leads with owner_id
+    # and so cannot serve a lookup by checksum alone.
+    checksum = Column(String(64), nullable=False, index=True)
 
     # Extracted content
     ocr_text = Column(Text)  # Full OCR extracted text

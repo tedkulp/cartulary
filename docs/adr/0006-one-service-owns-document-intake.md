@@ -20,7 +20,8 @@ PDF conversion fails; malformed or mislabeled image content is rejected.
 A Duplicate document raises one typed error that each adapter translates: HTTP answers 409,
 while directory and IMAP adapters treat it as handled. The pre-insert lookup remains advisory in
 this change; making per-Owner checksums database-unique needs a separate migration and existing
-data policy. Automated imports have no Uploader, so their `uploaded_by` remains NULL and historic
+data policy. _Superseded in part by ADR 0009: the lookup is no longer the only thing keeping the
+rule, and a unique index refuses the concurrent insert it used to let through._ Automated imports have no Uploader, so their `uploaded_by` remains NULL and historic
 rows are not backfilled.
 
 The service commits before requesting background processing because the task must be able to

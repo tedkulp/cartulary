@@ -1,15 +1,22 @@
 """Behavior tests for the single Document intake seam."""
 
+import threading
 import uuid
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Iterator, Optional
 from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
 from PIL import Image
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateError, InvalidDocumentError
+from app.models.document import Document
 from app.models.user import User
 from app.services.document_intake import DocumentIntakeService
 from app.services.notification_service import NotificationService
@@ -346,3 +353,159 @@ def test_creation_event_distinguishes_owner_from_uploader() -> None:
             "user_id": str(uploader_id),
         },
     )
+
+
+@pytest.fixture
+def committed_owner(db_engine) -> Iterator[UUID]:
+    """An Owner id other connections can see, with its Documents removed after.
+
+    The `db_session` fixture of ADR 0005 holds one connection open and rolls it
+    back, so nothing it writes is visible to a second connection. A race between
+    two intakes needs two, hence a fixture that commits and cleans up after itself.
+    """
+    session = Session(db_engine)
+    owner = User(email=f"{uuid.uuid4()}@example.com")
+    session.add(owner)
+    session.commit()
+    owner_id = owner.id
+    try:
+        yield owner_id
+    finally:
+        session.execute(delete(Document).where(Document.owner_id == owner_id))
+        session.execute(delete(User).where(User.id == owner_id))
+        session.commit()
+        session.close()
+
+
+def _document(owner_id: Optional[UUID], checksum: str) -> Document:
+    return Document(
+        title="report.pdf",
+        original_filename="report.pdf",
+        file_path=f"{uuid.uuid4()}/report.pdf",
+        file_size=6,
+        mime_type="application/pdf",
+        checksum=checksum,
+        owner_id=owner_id,
+    )
+
+
+def test_database_refuses_one_owner_two_documents_of_the_same_bytes(db_session) -> None:
+    owner = User(email=f"{uuid.uuid4()}@example.com")
+    db_session.add(owner)
+    db_session.commit()
+    db_session.add(_document(owner.id, "a" * 64))
+    db_session.commit()
+
+    db_session.add(_document(owner.id, "a" * 64))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_database_allows_two_owners_the_same_bytes(db_session) -> None:
+    first = User(email=f"{uuid.uuid4()}@example.com")
+    second = User(email=f"{uuid.uuid4()}@example.com")
+    db_session.add_all([first, second])
+    db_session.commit()
+
+    db_session.add_all([_document(first.id, "b" * 64), _document(second.id, "b" * 64)])
+    db_session.commit()
+
+    assert db_session.query(Document).filter(Document.checksum == "b" * 64).count() == 2
+
+
+def test_documents_without_an_owner_do_not_deduplicate(db_session) -> None:
+    """Deleting a User clears owner_id, and no archive holds those Documents."""
+    checksum = "c" * 64
+    db_session.add_all([_document(None, checksum), _document(None, checksum)])
+    db_session.commit()
+
+    assert db_session.query(Document).filter(Document.checksum == checksum).count() == 2
+
+
+def test_concurrent_intake_of_the_same_bytes_creates_one_document(
+    db_engine, committed_owner, tmp_path
+) -> None:
+    """Both attempts pass the advisory lookup; only one Document survives it."""
+    released = threading.Barrier(2, timeout=30)
+
+    class BarrierStorage(StorageService):
+        """Storage that holds an intake between its lookup and its insert.
+
+        Storing is the one step intake takes between the two, which is what makes
+        it the seam that puts both attempts past the lookup before either inserts.
+        """
+
+        def save_bytes(
+            self, content: bytes, document_id: UUID, filename: str
+        ) -> StoredFile:
+            stored = super().save_bytes(content, document_id, filename)
+            released.wait()
+            return stored
+
+    outcomes: list[object] = []
+
+    def attempt() -> None:
+        session = Session(db_engine)
+        try:
+            outcomes.append(
+                DocumentIntakeService(
+                    session, BarrierStorage(str(tmp_path)), MagicMock(), MagicMock()
+                ).intake(
+                    content=b"the same report",
+                    filename="report.pdf",
+                    owner_id=committed_owner,
+                )
+            )
+        except Exception as error:
+            outcomes.append(error)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+
+    created = [outcome for outcome in outcomes if isinstance(outcome, Document)]
+    refused = [outcome for outcome in outcomes if isinstance(outcome, DuplicateError)]
+    assert len(created) == 1, outcomes
+    assert len(refused) == 1, outcomes
+    assert refused[0].detail == {"document_id": str(created[0].id)}
+
+    reader = Session(db_engine)
+    try:
+        assert reader.query(Document).filter(Document.owner_id == committed_owner).count() == 1
+    finally:
+        reader.close()
+    assert [path.name for path in tmp_path.rglob("*.pdf")] == ["report.pdf"]
+
+
+def test_unrelated_integrity_failure_is_not_reported_as_a_duplicate() -> None:
+    """An Owner deleted mid-intake breaks a foreign key, which is not a duplicate."""
+    storage = MagicMock()
+    storage.save_bytes.return_value = StoredFile(
+        relative_path="ab/document/report.pdf",
+        filename="report.pdf",
+        mime_type="application/pdf",
+        size=6,
+    )
+    db = _session()
+    # Nothing exists when intake looks, and a Document would be found if it looked
+    # again — which it must not, because this conflict is not about a checksum.
+    db.query.return_value.filter.return_value.first.side_effect = [
+        None,
+        SimpleNamespace(id=uuid.uuid4()),
+    ]
+    db.commit.side_effect = IntegrityError(
+        "INSERT INTO documents",
+        {},
+        SimpleNamespace(diag=SimpleNamespace(constraint_name="documents_owner_id_fkey")),
+    )
+
+    with pytest.raises(IntegrityError):
+        DocumentIntakeService(db, storage, MagicMock(), MagicMock()).intake(
+            content=b"report", filename="report.pdf", owner_id=uuid.uuid4()
+        )
+
+    storage.delete_file.assert_called_once_with("ab/document/report.pdf")

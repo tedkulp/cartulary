@@ -258,7 +258,11 @@ never disagree. Semantic search is ORM, not raw SQL, for this reason; see ADR 00
   async compatibility. Use `selectinload()` on queries that would otherwise N+1.
 - Multiple providers behind one thing means an abstract port with adapters — storage
   (local/S3), the two model ports, the page cache. See ADR 0001.
-- Uploads are deduplicated by SHA-256 checksum per owner; a duplicate answers 409.
+- Uploads are deduplicated by SHA-256 checksum per owner; a duplicate answers 409. The
+  rule is the database's — `OWNER_CHECKSUM_INDEX` on `Document` — and intake's
+  pre-insert lookup is the courtesy that names the existing Document. A conflicting
+  insert raises the same `DuplicateError`, so concurrent intake of the same bytes
+  cannot create two Documents. See ADR 0009.
 - Search is hybrid: PostgreSQL full-text and pgvector semantic results combined with RRF.
 - Errors: a user-friendly message out, the detail in the log.
 
