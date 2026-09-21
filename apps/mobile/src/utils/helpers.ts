@@ -120,7 +120,9 @@ export function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null;
+  // Whatever this runtime's setTimeout hands back: a number on React Native, a
+  // Timeout under Node's types. The `NodeJS` namespace is not in scope here.
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
   return function executedFunction(...args: Parameters<T>) {
     const later = () => {
